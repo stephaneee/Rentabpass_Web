@@ -1,7 +1,8 @@
 /* Rentab'Pass : fonctionnement hors connexion.
    La page est d'abord demandée au réseau (pour recevoir les mises à jour), puis à la copie locale si besoin. */
-const CACHE = 'rentabpass-v2';
-const FILES = ['./', './index.html', './desktop.css', './desktop.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
+const CACHE = 'rentabpass-v3';
+const FILES = ['./', './index.html', './app.js', './web.css', './desktop.css', './desktop.js', './manifest.webmanifest', './icon-192.png', './icon-512.png',
+  './fonts/Inter-Regular.woff', './fonts/Inter-Medium.woff', './fonts/Inter-SemiBold.woff', './fonts/Inter-Bold.woff', './fonts/Anton-Regular.woff'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));

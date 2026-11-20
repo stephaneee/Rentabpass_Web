@@ -1,0 +1,9 @@
+/* Rentab'Pass — site web : polices hébergées sur le site (plus aucun appel à Google) */
+@font-face { font-family: "Inter"; src: url("fonts/Inter-Regular.woff") format("woff"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Inter"; src: url("fonts/Inter-Medium.woff") format("woff"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "Inter"; src: url("fonts/Inter-SemiBold.woff") format("woff"); font-weight: 600; font-display: swap; }
+@font-face { font-family: "Inter"; src: url("fonts/Inter-Bold.woff") format("woff"); font-weight: 700 900; font-display: swap; }
+@font-face { font-family: "Anton"; src: url("fonts/Anton-Regular.woff") format("woff"); font-weight: 400; font-display: swap; }
+:root { --disp: 'Anton', 'sans-serif-condensed', 'Roboto Condensed', Impact, 'Arial Narrow', sans-serif; }
+.disp { letter-spacing: .01em; }
+#splash .ttl { letter-spacing: .03em; }

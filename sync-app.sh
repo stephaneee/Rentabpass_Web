@@ -19,7 +19,7 @@ s = s[:a] + '<script src="app.js"></script>' + s[b + len('</script>'):]
 # 3. sécurité + styles du site
 csp = ("default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
        "img-src 'self' data: blob: https://image.tmdb.org; font-src 'self'; "
-       "connect-src 'self' https://api.themoviedb.org; manifest-src 'self'; worker-src 'self'; "
+       "connect-src 'self' https://api.themoviedb.org; frame-src https://www.youtube-nocookie.com; manifest-src 'self'; worker-src 'self'; "
        "base-uri 'none'; form-action 'none'; object-src 'none'")
 head = ('<meta http-equiv="Content-Security-Policy" content="' + csp + '">\n'
         '<meta name="referrer" content="no-referrer">\n')

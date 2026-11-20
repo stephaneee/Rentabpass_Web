@@ -340,6 +340,8 @@ function storeFilm(r){
   if(Array.isArray(r.genres))f.g=r.genres.map(function(g){catalog.genres[g.id]=g.name;return g.id;});
   else if(Array.isArray(r.genre_ids))f.g=r.genre_ids.slice(0,6);
   if(typeof r.runtime==='number')f.rt=r.runtime;
+  if(typeof r.original_language==='string')f.ol=r.original_language;
+  if(typeof r.vote_count==='number')f.vc=r.vote_count;
   if(r.release_dates&&Array.isArray(r.release_dates.results))setFrDate(f,r.release_dates.results);
   catalog.films[r.id]=f;return f;
 }
@@ -354,25 +356,29 @@ function setFrDate(f,results){
 function frDateFor(id){return tmdb('/movie/'+id+'/release_dates').then(function(r){var f=catalog.films[id];if(f)setFrDate(f,r.results||[]);return f?f.fr:'';});}
 function filmDate(f){return (f&&(f.fr||f.d))||'';}
 function pool(items,n,fn){var i=0;function next(){if(i>=items.length)return Promise.resolve();var it=items[i++];return fn(it).catch(noop).then(next);}var w=[];for(var k=0;k<n;k++)w.push(next());return Promise.all(w);}
+/* À l'affiche / Prochainement : films en français, en anglais ou dans une langue européenne (pas de productions indiennes, etc.) */
+var LANG_OK={fr:1,en:1,de:1,it:1,es:1,pt:1,nl:1,sv:1,da:1,no:1,nb:1,fi:1,is:1,pl:1,cs:1,sk:1,hu:1,ro:1,bg:1,el:1,hr:1,sr:1,sl:1,et:1,lv:1,lt:1,ga:1,cy:1,ca:1,eu:1,gl:1,lb:1,mt:1,uk:1};
+function langOk(f){return !f||!f.ol||!!LANG_OK[f.ol];}
+var LIST_V=2;
 function listRange(kind){var t=todayISO();return kind==='now'?{gte:monthsAgo(12),lte:t,asc:false}:{gte:nextMonday(),lte:addDays(t,183),asc:true};}
 function loadList(kind,force){
   var L=catalog.lists[kind];
   var q=listRange(kind);
-  if(!force&&L&&Date.now()-L.at<6*3600*1000&&L.day===todayISO()&&L.gte===q.gte)return Promise.resolve();
+  if(!force&&L&&Date.now()-L.at<6*3600*1000&&L.day===todayISO()&&L.gte===q.gte&&L.v===LIST_V)return Promise.resolve();
   function page(n){return tmdb('/discover/movie',{region:'FR',with_release_type:'2|3','release_date.gte':q.gte,'release_date.lte':q.lte,sort_by:'popularity.desc',include_adult:'false',page:n});}
   return loadGenres().catch(noop).then(function(){
     var more=kind==='now'?[2,3,4,5,6,7,8,9,10]:[2,3,4,5];
     return Promise.all([page(1)].concat(more.map(function(n){return page(n).catch(function(){return {results:[]};});})));
   }).then(function(rs){
     var ids=[],seen={};
-    rs.forEach(function(r){(r.results||[]).forEach(function(x){var f=storeFilm(x);if(f&&!seen[f.id]){seen[f.id]=1;ids.push(f.id);}});});
+    rs.forEach(function(r){(r.results||[]).forEach(function(x){var f=storeFilm(x);if(f&&!seen[f.id]&&langOk(f)){seen[f.id]=1;ids.push(f.id);}});});
     /* la date renvoyée peut être la sortie mondiale : on vérifie la date française quand elle sort de la période */
     var check=ids.filter(function(id){var f=catalog.films[id];return !f.frc&&(!f.d||f.d<q.gte||f.d>q.lte);}).slice(0,80);
     return pool(check,5,frDateFor).then(function(){return ids;});
   }).then(function(ids){
     ids=ids.filter(function(id){var d=filmDate(catalog.films[id]);return d&&d>=q.gte&&d<=q.lte;});
     ids.sort(function(a,b){var da=filmDate(catalog.films[a]),db=filmDate(catalog.films[b]);return q.asc?(da<db?-1:da>db?1:0):(da<db?1:da>db?-1:0);});
-    catalog.lists[kind]={at:Date.now(),day:todayISO(),gte:q.gte,ids:ids};saveCatalog();
+    catalog.lists[kind]={at:Date.now(),day:todayISO(),gte:q.gte,v:LIST_V,ids:ids};saveCatalog();
   });
 }
 function filmDetails(id){return tmdb('/movie/'+id,{append_to_response:'release_dates'}).then(function(r){var f=storeFilm(r);saveCatalog();return f;});}
@@ -598,7 +604,7 @@ function viewFilms(){
 function ensureFilms(force){
   var t=ui.films.tab;if(t!=='now'&&t!=='up')return;if(!CAN_TMDB||!tmdbKey())return;
   if(ui.films.q.trim())return;
-  var L=catalog.lists[t];if(!force&&L&&Date.now()-L.at<6*3600*1000&&L.day===todayISO()&&L.gte===listRange(t).gte)return;
+  var L=catalog.lists[t];if(!force&&L&&Date.now()-L.at<6*3600*1000&&L.day===todayISO()&&L.gte===listRange(t).gte&&L.v===LIST_V)return;
   filmsState.loading=!L;filmsState.err=null;if(!L)render();
   loadList(t,force).then(function(){filmsState.loading=false;if(ui.tab==='films')render();},function(e){filmsState.loading=false;if(!L)filmsState.err=e;else toast(tmdbErr(e));if(ui.tab==='films')render();});
 }
@@ -860,13 +866,31 @@ function localSuggestions(q){
   return out.slice(0,4);
 }
 var formRemote=[],formSearchT=null,formSearchQ='';
+/* propositions de la saisie : jamais de film déjà vu.
+   Sans titre : le film du moment le mieux noté + 2 films attendus déjà sortis, les plus proches d'aujourd'hui.
+   En tapant : résultats de la base de films, sans les films déjà vus. */
+function seenFilm(id,title){return state.sessions.some(function(s){return (id&&s.tmdb===id)||norm(s.title)===norm(title);});}
+function sugItem(x,label){return {title:x.t,tmdb:x.id,poster:x.p,genres:genreNames(x),label:label};}
+function defaultSuggestions(){
+  var out=[],t=todayISO(),from=addDays(t,-35);
+  if(CAN_TMDB&&tmdbKey()&&catalog.lists.now){
+    var best=(catalog.lists.now.ids||[]).map(function(id){return catalog.films[id];}).filter(function(x){
+      var d=filmDate(x);return x&&langOk(x)&&d&&d>=from&&d<=t&&(x.vc===undefined||x.vc>=15)&&!seenFilm(x.id,x.t);
+    }).sort(function(a,b){return (b.v||0)-(a.v||0);})[0];
+    if(best)out.push(sugItem(best,'Le mieux noté du moment'+(best.v?' · '+best.v.toFixed(1).replace('.',',')+'/10':'')));
+  }
+  watchList().filter(function(w){return w.d&&w.d<=t&&!seenFilm(w.id,w.t);}).sort(function(a,b){return a.d<b.d?1:-1;}).slice(0,2).forEach(function(w){
+    var x=catalog.films[w.id]||{id:w.id,t:w.t,p:w.p,g:[]};out.push(sugItem(x,'Attendu · sorti le '+frDate(w.d)));
+  });
+  return out;
+}
 function suggHTML(){
-  var f=ui.form,loc=localSuggestions(f.title),seen={};loc.forEach(function(s){if(s.tmdb)seen[s.tmdb]=1;});
-  var rem=f.tmdb?[]:formRemote.filter(function(id){return !seen[id]&&catalog.films[id];}).slice(0,5).map(function(id){var x=catalog.films[id];return {title:x.t,tmdb:x.id,poster:x.p,genres:genreNames(x),year:(x.d||'').slice(0,4),src:'tmdb'};});
-  var all=(f.tmdb?[]:loc).concat(rem);
-  if(!f.title&&!all.length&&CAN_TMDB&&tmdbKey()&&catalog.lists.now){all=(catalog.lists.now.ids||[]).slice(0,5).map(function(id){var x=catalog.films[id];return x?{title:x.t,tmdb:x.id,poster:x.p,genres:genreNames(x),year:(x.d||'').slice(0,4),src:'tmdb'}:null;}).filter(Boolean);}
+  var f=ui.form,all;
+  if(f.tmdb)all=[];
+  else if(!f.title.trim())all=defaultSuggestions();
+  else all=formRemote.map(function(id){return catalog.films[id];}).filter(function(x){return x&&!seenFilm(x.id,x.t);}).slice(0,5).map(function(x){return sugItem(x,'base de films'+((x.d||'').slice(0,4)?' · '+(x.d||'').slice(0,4):''));});
   window.__sugg=all;
-  return all.map(function(s,i){var b=posterBg(s.title,s.poster,'w92');return '<button data-act="fpick" data-v="'+i+'"><span class="thumb" style="'+b.style+'"></span><span style="flex:1;min-width:0"><span style="display:block;font-weight:600">'+esc(s.title)+'</span><span style="font-size:11px" class="mut">'+(s.src==='mine'?'déjà vu':'base de films')+(s.year?' · '+s.year:'')+'</span></span></button>';}).join('');
+  return all.map(function(s,i){var b=posterBg(s.title,s.poster,'w92');return '<button data-act="fpick" data-v="'+i+'"><span class="thumb" style="'+b.style+'"></span><span style="flex:1;min-width:0"><span style="display:block;font-weight:600">'+esc(s.title)+'</span><span style="font-size:11px" class="mut">'+esc(s.label)+'</span></span></button>';}).join('');
 }
 function formSearch(){
   var q=ui.form.title.trim();clearTimeout(formSearchT);

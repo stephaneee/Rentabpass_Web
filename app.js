@@ -567,8 +567,13 @@ function viewFilms(){
     var wl=watchList(),ns=notifStatus();
     var wi=wl.map(function(w){var n=w.d?daysUntil(w.d):null,lab=n===null?'date inconnue':n<0?'déjà sorti':n===0?'aujourd’hui':n===1?'demain':'dans '+n+' jours';var f=catalog.films[w.id];
       return {act:'film',v:w.id,title:w.t,poster:w.p,date:w.d,star:w.id,line:esc(f?genreNames(f).slice(0,2).join(' · ')||'Film':'Film'),badge:lab,badgeAcc:n!==null&&n>=0&&n<=7};});
+    /* les films déjà sortis sont regroupés à part, dans une rubrique que l'on peut réduire */
+    var today=todayISO(),wiUp=wi.filter(function(it){return !it.date||it.date>=today;}),wiOut=wi.filter(function(it){return it.date&&it.date<today;});
+    var outOpen=lsGet('rentabpass-watch-out')==='open';
+    var outBlock=wiOut.length?'<section style="display:flex;flex-direction:column;gap:8px"><button data-act="watchOutToggle" aria-expanded="'+outOpen+'" style="display:flex;align-items:center;gap:8px;background:none;border:none;padding:0;min-height:44px;text-align:left;color:var(--txt)"><h2 class="lbl" style="flex:1">Déjà sortis · '+wiOut.length+'</h2><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--mut);transform:rotate('+(outOpen?180:0)+'deg)"><path d="M6 9l6 6 6-6"/></svg></button>'+(outOpen?renderItems(wiOut,mode,false):'')+'</section>':'';
     body=(IS_APP&&wl.length&&ns==='denied'?'<button class="note warn" data-act="askNotif" style="width:100%;text-align:left">'+ICO.bell+'<span>Les notifications sont désactivées : touchez ici pour les activer et être prévenu des sorties.</span></button>':'')+
-    (wi.length?renderItems(wi,mode,true):'<div class="empty"><span>Aucun film attendu. Dans <strong style="color:var(--txt)">Prochainement</strong>, touchez l’étoile d’un film pour être prévenu de sa sortie.</span></div>');
+    (wiUp.length?renderItems(wiUp,mode,true):(wiOut.length?'':'<div class="empty"><span>Aucun film attendu. Dans <strong style="color:var(--txt)">Prochainement</strong>, touchez l’étoile d’un film pour être prévenu de sa sortie.</span></div>'))+
+    (wiUp.length===0&&wiOut.length?'<div class="empty"><span>Aucun film attendu à venir.</span></div>':'')+outBlock;
   }else{
     var hasQ=!!ui.films.q.trim();
     if(!CAN_TMDB||!tmdbKey()){
@@ -1145,6 +1150,7 @@ var A={
   filmsTab:function(v){ui.films.tab=v;ui.films.q='';filmsState.results=null;filmsState.err=null;render();var sc=document.querySelector('.scroll');if(sc)sc.scrollTop=0;ensureFilms();},
   filmsSeen:function(v){ui.films.seen=v;render();},
   filmsView:function(v){setFilmsView(ui.films.tab,v);render();},
+  watchOutToggle:function(){lsSet('rentabpass-watch-out',lsGet('rentabpass-watch-out')==='open'?'':'open');render();},
   watchToggle:function(v){watchToggle(+v);if(ui.sheet&&ui.sheet.kind==='film')renderLayer();render();},
   theme:function(v){lsSet(LST,v);applyTheme();render();},
   soonToggle:function(){var cur=ymOf(todayISO());lsSet('rentabpass-soon',lsGet('rentabpass-soon')===cur?'':cur);render();},

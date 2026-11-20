@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Préparer le site
-        run: mkdir site && cp index.html desktop.css desktop.js manifest.webmanifest sw.js icon-192.png icon-512.png site/
+        run: mkdir site && cp index.html desktop.css desktop.js manifest.webmanifest sw.js icon-192.png icon-512.png robots.txt site/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -1,0 +1,84 @@
+/* Rentab'Pass — mise en page grand écran (site web uniquement, l'APK n'utilise pas ce fichier) */
+@media (min-width: 1000px) {
+  html, body { overflow: hidden; }
+  .app { max-width: none; height: 100vh; }
+
+  /* barre de navigation : rail vertical à gauche */
+  .nav { top: 0; bottom: 0; left: 0; right: auto; width: 232px; height: auto; padding: 104px 14px 24px;
+         display: flex; flex-direction: column; gap: 6px; border-top: none; border-right: 1px solid var(--line); }
+  .nav::before { content: "RENTAB’PASS"; position: absolute; top: 34px; left: 28px; font-family: var(--disp);
+                 font-size: 30px; letter-spacing: .05em; color: var(--txt); }
+  .nav::after { content: "Copyright : Stanji"; position: absolute; bottom: 22px; left: 28px; font-size: 11px; color: var(--mut); }
+  .nav button { flex-direction: row; justify-content: flex-start; gap: 14px; height: 50px; padding: 0 16px;
+                border-radius: 14px; font-size: 15px; }
+  .nav button:hover { background: var(--deep); color: var(--txt); }
+  .nav button[aria-current="page"] { background: var(--deep); }
+
+  /* zone de contenu à droite du rail, largeur confortable */
+  #view:has(.nav) { margin-left: 232px; }
+  #banner { margin-left: 232px; }
+  .top, .scroll { width: 100%; max-width: 1240px; margin-left: auto; margin-right: auto; }
+  .top { padding: 34px 40px 14px; }
+  .scroll { padding: 6px 40px 60px; gap: 18px; }
+  .h1 { font-size: 48px; }
+
+  /* bouton Ajouter une séance */
+  .fab { position: fixed; right: 40px; bottom: 36px; }
+
+  /* fenêtres : boîtes centrées au lieu de panneaux du bas */
+  .scrim { justify-content: center; align-items: center; }
+  .scrim > .close-area { position: absolute; inset: 0; }
+  .sheet { position: relative; width: min(600px, 92vw); max-height: 86vh; border-radius: 24px;
+           border: 1px solid var(--line2); padding: 20px 28px 28px; }
+  .sheet .handle { display: none; }
+  .toast { bottom: 36px; }
+
+  /* Accueil : rentabilité à gauche, séances du mois à droite */
+  #view[data-tab="home"] .scroll { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+                                   align-content: start; align-items: start; column-gap: 24px; }
+  #view[data-tab="home"] .scroll > * { grid-column: 1; }
+  #view[data-tab="home"] .scroll > section[aria-label="Séances du mois"] { grid-column: 2; grid-row: 1 / span 30; }
+
+  /* Séances : deux colonnes par mois */
+  #view[data-tab="hist"] .scroll > section { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  #view[data-tab="hist"] .scroll > section > .sec-title { grid-column: 1 / -1; }
+
+  /* Films : plus d'affiches par ligne, listes sur deux colonnes */
+  .pgrid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px; }
+  #view[data-tab="films"] .scroll > .seg:first-child { max-width: 560px; }
+  #view[data-tab="films"] .scroll > div:has(> .arow) { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #view[data-tab="films"] .scroll > section:has(> .arow) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  #view[data-tab="films"] .scroll > section:has(> .arow) > h2 { grid-column: 1 / -1; }
+
+  /* Stats : tuiles sur 4 colonnes, blocs sur 2 colonnes */
+  #view[data-tab="stats"] .scroll { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; align-items: start; column-gap: 24px; }
+  #view[data-tab="stats"] .scroll > .chips,
+  #view[data-tab="stats"] .scroll > .grid2,
+  #view[data-tab="stats"] .scroll > .note,
+  #view[data-tab="stats"] .scroll > .empty { grid-column: 1 / -1; }
+  #view[data-tab="stats"] .scroll > .grid2 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+  /* Réglages : deux colonnes */
+  #view[data-tab="set"] .scroll { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; align-items: start; column-gap: 28px; }
+  #view[data-tab="set"] .scroll > p:last-child { grid-column: 1 / -1; }
+
+  /* Saisie d'une séance : formulaire centré */
+  #view[data-tab="form"] .top, #view[data-tab="form"] .scroll { max-width: 760px; }
+  .foot { left: 50%; right: auto; transform: translateX(-50%); width: min(760px, 100vw); border: 1px solid var(--line);
+          border-bottom: none; border-radius: 22px 22px 0 0; }
+
+  /* survol à la souris */
+  .item, .row, .arow, .pcard .pimg, .btn, .pill, .tech, .duo { transition: background .15s, transform .15s, filter .15s, border-color .15s; }
+  .item:hover, .arow:hover { border-color: var(--track2); background: var(--deep); }
+  .row:hover { background: var(--deep); }
+  .pcard:hover .pimg { transform: translateY(-3px); }
+  .btn:hover { filter: brightness(1.06); }
+  .tech:hover:not([aria-pressed="true"]), .pill:hover:not([aria-pressed="true"]) { border-color: var(--mut); }
+  .ibtn:hover { border-color: var(--mut); }
+}
+@media (min-width: 1400px) {
+  #view[data-tab="hist"] .scroll > section { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (min-width: 1000px) {
+  .scroll > .chips { margin: 0; padding: 0 0 2px; overflow: visible; flex-wrap: wrap; }
+}

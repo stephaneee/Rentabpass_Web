@@ -124,7 +124,7 @@ function safePath(p){return typeof p==='string'&&/^\/[A-Za-z0-9_\-]+\.(jpg|jpeg|
 /* ---------- état ---------- */
 function defaultState(){
   var prices=presetPasses();Object.keys(DEFAULT_PRICES).forEach(function(k){prices[k]=[{p:DEFAULT_PRICES[k],from:ORIGIN}];});
-  return {v:3,prices:prices,months:{},sessions:[],watch:{},alertLead:3,setup:false};
+  return {v:3,prices:prices,months:{},sessions:[],watch:{},notes:{},alertLead:3,setup:false};
 }
 function normMP(v){
   if(v&&typeof v==='object'&&FORM[v.f])return {f:v.f,duo:v.f!=='none'&&!!v.duo};
@@ -147,6 +147,8 @@ function migrate(s){
   }
   Object.keys(s.months).forEach(function(k){var m=normMP(s.months[k]);if(m&&/^\d{4}-\d{2}$/.test(k))s.months[k]=m;else delete s.months[k];});
   if(!s.watch||typeof s.watch!=='object')s.watch={};
+  if(!s.notes||typeof s.notes!=='object')s.notes={};
+  Object.keys(s.notes).forEach(function(k){var n=s.notes[k];if(!n||typeof n!=='object'){delete s.notes[k];return;}n.r=Math.max(0,Math.min(5,Math.round(+n.r||0)));n.c=String(n.c||'').slice(0,280);if(!n.r&&!n.c)delete s.notes[k];});
   Object.keys(s.watch).forEach(function(k){var w=s.watch[k];if(!w||typeof w.t!=='string'){delete s.watch[k];return;}w.p=safePath(w.p);if(!/^\d{4}-\d{2}-\d{2}$/.test(w.d||''))w.d='';});
   if([0,1,3,7].indexOf(s.alertLead)<0)s.alertLead=3;
   delete s.subStart;
@@ -208,8 +210,21 @@ function setBanner(){
   if(readOnly)msg='Enregistrement en ligne refusé : vos saisies restent sur cet appareil.';
   b.innerHTML=msg?'<p class="banner" style="margin-top:calc(8px + var(--safe-t))">'+ICO.cloud+'<span>'+esc(msg)+'</span></p>':'';
 }
+/* widget Android : chiffres du mois en cours et de l'année, envoyés au téléphone */
+var widgetLast='';
+function pushWidget(){
+  if(!BRIDGE||!BRIDGE.setWidget)return;
+  try{
+    var ym=ymOf(todayISO()),mi=monthInfo(ym),yi=yearInfo(+ym.slice(0,4)),n=sessionsIn(ym).length;
+    var d={month:cap(monthTitle(ym))+' · '+passShort(monthPass(ym)),saving:mi.cost?signed(mi.saving):eur(mi.value),pos:mi.saving>=0||!mi.cost,
+      pct:mi.cost?Math.round(Math.min(1,mi.value/mi.cost)*100):(n?100:0),
+      detail:n+' séance'+(n>1?'s':'')+' · '+eur(mi.value)+(mi.cost?' / '+eur(mi.cost):''),
+      year:'Année '+ym.slice(0,4)+' : '+signed(yi.saving)};
+    var j=JSON.stringify(d);if(j===widgetLast)return;widgetLast=j;BRIDGE.setWidget(j);
+  }catch(e){}
+}
 function persist(){
-  saveLocal();
+  saveLocal();pushWidget();
   if(!stateRef||readOnly)return;
   if(writing){pending=true;return;}
   writing=true;
@@ -459,10 +474,12 @@ function navHTML(){
 
 function sessionItem(s){
   var meta=[shortDate(s.date)];if(s.time)meta.push(s.time.replace(':','h'));if(s.room)meta.push(/^\d+$/.test(s.room)?'Salle '+s.room:s.room);else if(s.cinema)meta.push(s.cinema);
-  var ex=sessionExtra(s);
+  var ex=sessionExtra(s),nt=noteOf(s.tmdb,s.title),miss=ui.histFilter==='todo'?missingOf(s):[];
   return '<button class="item" data-act="edit" data-v="'+esc(s.id)+'">'+posterHTML(s.title,s.poster)+
     '<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px"><span style="font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(s.title)+'</span>'+
-    '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="chip">'+esc(TECH[s.tech].chip)+'</span><span style="font-size:12px" class="mut">'+esc(meta.join(' · '))+'</span></div></div>'+
+    '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="chip">'+esc(TECH[s.tech].chip)+'</span><span style="font-size:12px" class="mut">'+esc(meta.join(' · '))+'</span></div>'+
+    (nt&&nt.r?'<span style="font-size:12px;color:var(--accT);letter-spacing:1px" aria-label="Ma note : '+nt.r+' sur 5">'+starsText(nt.r)+'</span>':'')+
+    (miss.length?'<span style="font-size:12px;color:var(--neg)">À compléter : '+miss.join(', ')+'</span>':'')+'</div>'+
     '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0"><span style="font-size:15px;font-weight:700">'+eur(sessionValue(s))+'</span><span style="font-size:11px;'+(ex>0?'color:var(--neg)':'')+'" class="mut">'+(ex>0?eur(ex)+' payés':s.places+' place'+(s.places>1?'s':''))+'</span></div></button>';
 }
 
@@ -653,6 +670,7 @@ function sheetFilmHTML(){
   return '<div class="sheet" role="dialog" aria-label="'+esc(f.t)+'"><span class="handle" aria-hidden="true"></span>'+backBar()+
   '<div style="display:flex;gap:14px;align-items:flex-start">'+posterHTML(f.t,f.p,true)+'<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px"><h2 class="disp" style="margin:0;font-size:30px;line-height:1">'+esc(f.t)+'</h2>'+(f.ot&&f.ot!==f.t?'<span style="font-size:12px" class="mut">'+esc(f.ot)+'</span>':'')+'<span style="font-size:12px" class="mut">'+esc(meta)+'</span>'+(genreNames(f).length?'<span style="font-size:12px" class="acc">'+esc(genreNames(f).join(' · '))+'</span>':'')+(n!==null&&n>0?'<span class="badge no" style="margin-top:2px">Sort dans '+n+' jour'+(n>1?'s':'')+'</span>':'')+'</div></div>'+
   (f.o?'<p style="margin:0;font-size:14px;line-height:1.5;color:var(--soft2)">'+esc(f.o)+'</p>':'')+
+  (seen.length||noteOf(f.id,f.t)?'<div style="display:flex;flex-direction:column;gap:4px"><span class="lbl" style="font-size:11px">Ma note</span>'+starsHTML((noteOf(f.id,f.t)||{}).r||0,'rateFilm',f.id)+((noteOf(f.id,f.t)||{}).c?'<p style="margin:0;font-size:14px;line-height:1.45;font-style:italic">« '+esc(noteOf(f.id,f.t).c)+' »</p>':'')+'</div>':'')+
   creditsHTML(f)+trailerHTML(f)+
   '<button class="duo" data-act="watchToggle" data-v="'+f.id+'" aria-pressed="'+!!w+'"><span class="sw" aria-hidden="true"><i></i></span><span style="flex:1;text-align:left"><strong>Film attendu</strong><span class="mut" style="font-size:12px;display:block">'+(w?'Vous serez prévenu de sa sortie':'Recevoir une alerte avant sa sortie')+'</span></span></button>'+
   (seen.length?'<div class="tl"><span class="lbl" style="font-size:11px;padding-bottom:8px">Vu '+seen.length+' fois</span>'+seen.map(function(s){return '<div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0"><span>'+shortDate(s.date)+' '+s.date.slice(0,4)+' · '+esc(TECH[s.tech].label)+' · '+s.places+' pl.</span><span style="font-weight:700">'+eur(sessionValue(s))+'</span></div>';}).join('')+'</div>':'')+
@@ -785,9 +803,30 @@ function notifSection(){
   (BRIDGE&&typeof BRIDGE.openSettings==='function'?'<button class="btn sm ghost" data-act="openAppInfo">Ouvrir les informations de l’application</button>':'')+'</section>';
 }
 
+/* ---------- notes et avis (par film) ---------- */
+function filmKey(tmdb,title){return tmdb?'t'+tmdb:'n'+keyOf(title);}
+function noteOf(tmdb,title){return state.notes[filmKey(tmdb,title)]||state.notes['n'+keyOf(title)]||null;}
+function setNote(tmdb,title,r,c){
+  var k=filmKey(tmdb,title),n=state.notes[k]||{};
+  if(r!==undefined)n.r=Math.max(0,Math.min(5,r|0));
+  if(c!==undefined)n.c=String(c||'').trim().slice(0,280);
+  if(tmdb&&state.notes['n'+keyOf(title)]&&k!=='n'+keyOf(title))delete state.notes['n'+keyOf(title)];
+  if(!n.r&&!n.c)delete state.notes[k];else{n.d=todayISO();state.notes[k]=n;}
+}
+function starsHTML(r,act,v,size){
+  size=size||26;var h='<div role="group" aria-label="Ma note" style="display:flex;gap:2px">';
+  for(var i=1;i<=5;i++)h+='<button data-act="'+act+'" data-v="'+esc(v)+'|'+i+'" aria-label="'+i+' étoile'+(i>1?'s':'')+'" aria-pressed="'+(r>=i)+'" style="background:none;border:none;padding:4px;min-width:40px;min-height:40px;display:flex;align-items:center;justify-content:center;color:'+(r>=i?'var(--acc)':'var(--track2)')+'"><svg aria-hidden="true" width="'+size+'" height="'+size+'" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l2.9 6.6 7.1.6-5.4 4.7 1.6 7-6.2-3.8-6.2 3.8 1.6-7L2 9.7l7.1-.6z"/></svg></button>';
+  return h+'</div>';
+}
+function starsText(r){var h='';for(var i=1;i<=5;i++)h+=i<=r?'★':'☆';return h;}
+
 /* ---------- Séances ---------- */
+/* une séance « à compléter » : sans salle, sans heure, ou importée sans technologie confirmée */
+function missingOf(s){var m=[];if(!s.checked&&/^imp/.test(s.id))m.push('technologie');if(!s.time)m.push('heure');if(!s.room)m.push('salle');return m;}
 function viewHist(){
-  var q=norm(ui.q),all=state.sessions.filter(function(s){return !q||norm(s.title).indexOf(q)>=0||norm(s.room).indexOf(q)>=0;}).sort(sortDesc);
+  var todoN=state.sessions.filter(function(s){return missingOf(s).length;}).length;
+  if(ui.histFilter==='todo'&&!todoN)ui.histFilter='all';
+  var q=norm(ui.q),all=state.sessions.filter(function(s){return (!q||norm(s.title).indexOf(q)>=0||norm(s.room).indexOf(q)>=0)&&(ui.histFilter!=='todo'||missingOf(s).length);}).sort(sortDesc);
   var groups=[],cur=null;
   all.forEach(function(s){var ym=ymOf(s.date);if(!cur||cur.ym!==ym){cur={ym:ym,items:[]};groups.push(cur);}cur.items.push(s);});
   var body=groups.length?groups.map(function(g){
@@ -795,11 +834,47 @@ function viewHist(){
     return '<section style="display:flex;flex-direction:column;gap:10px"><div class="sec-title"><h2 class="lbl">'+cap(monthTitle(g.ym))+' '+g.ym.slice(0,4)+' · '+esc(passShort(monthPass(g.ym)))+'</h2><span style="font-size:12px" class="mut">'+eur(v)+'</span></div>'+g.items.map(sessionItem).join('')+'</section>';
   }).join(''):'<div class="empty"><span>'+(q?'Aucune séance ne correspond.':'Aucune séance enregistrée pour l’instant.')+'</span>'+(q?'':'<button class="btn sm" data-act="new" style="width:auto;padding:0 18px">'+ICO.plus+'Ajouter une séance</button>')+'</div>';
   return '<header class="top"><div><span class="eyebrow">'+state.sessions.length+' séance'+(state.sessions.length>1?'s':'')+' au total</span><h1 class="disp h1">Mes séances</h1></div></header>'+
-  '<main class="scroll"><div style="display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:0 14px;height:48px">'+ICO.search+'<label for="hq" class="sr">Rechercher</label><input id="hq" data-in="q" type="search" value="'+esc(ui.q)+'" placeholder="Rechercher un film, une salle" style="flex:1;background:transparent;border:none;font-size:16px;outline:none;min-width:0"></div>'+body+'</main>'+
+  '<main class="scroll"><div style="display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:0 14px;height:48px">'+ICO.search+'<label for="hq" class="sr">Rechercher</label><input id="hq" data-in="q" type="search" value="'+esc(ui.q)+'" placeholder="Rechercher un film, une salle" style="flex:1;background:transparent;border:none;font-size:16px;outline:none;min-width:0"></div>'+
+  (todoN?'<div class="seg" role="group" aria-label="Filtrer les séances" style="grid-template-columns:repeat(2,minmax(0,1fr))"><button data-act="histFilter" data-v="all" aria-pressed="'+(ui.histFilter!=='todo')+'">Toutes</button><button data-act="histFilter" data-v="todo" aria-pressed="'+(ui.histFilter==='todo')+'">À compléter · '+todoN+'</button></div>':'')+
+  body+'</main>'+
   '<button class="fab" data-act="new">'+ICO.plus+'Ajouter une séance</button>'+navHTML();
 }
 
 /* ---------- Stats ---------- */
+/* simulateur : ce qu'aurait coûté l'année avec chaque formule, à partir des séances réelles */
+function simCost(ym,mp){var d=ym+'-28',base=mp.f==='none'?0:priceAt('pass_'+mp.f,d)+(mp.duo?priceAt('opt_duo',d):0);return base+sessionsIn(ym).reduce(function(t,s){return t+extraFor(s,mp);},0);}
+function simulateYear(y){
+  var now=ymOf(todayISO()),months=[];
+  for(var m=1;m<=12;m++){var ym=y+'-'+pad(m);if(ym>now)break;if(monthPass(ym).f!=='none'||sessionsIn(ym).length)months.push(ym);}
+  if(!months.length)return null;
+  var real=months.reduce(function(t,ym){return t+monthInfo(ym).cost;},0);
+  var opts=[{f:'none',duo:false}];['m26','classique','silver','gold'].forEach(function(f){opts.push({f:f,duo:false});opts.push({f:f,duo:true});});
+  var rows=opts.map(function(mp){return {mp:mp,cost:months.reduce(function(t,ym){return t+simCost(ym,mp);},0)};}).sort(function(a,b){return a.cost-b.cost;});
+  return {months:months,real:real,rows:rows,preMay:months.some(function(ym){return ym+'-01'<MAY;}),n:state.sessions.filter(function(s){return months.indexOf(ymOf(s.date))>=0;}).length};
+}
+function simHTML(y){
+  var r=simulateYear(y);if(!r)return '';
+  var best=r.rows.filter(function(x){return x.mp.f!=='m26';})[0]||r.rows[0],m0=r.months[0],m1=r.months[r.months.length-1];
+  var period=m0===m1?monthTitle(m0):MSHORT[+m0.slice(5,7)-1]+' → '+MSHORT[+m1.slice(5,7)-1];
+  var gain=r.real-best.cost;
+  return '<section class="card" aria-label="Formule la moins chère"><div style="display:flex;flex-direction:column;gap:4px"><h2 class="disp h2">Quelle formule était la moins chère ?</h2><span class="mut" style="font-size:12px">Sur '+r.months.length+' mois ('+period+'), d’après vos '+r.n+' séance'+(r.n>1?'s':'')+' réelles</span></div>'+
+  '<p style="margin:0;font-size:14px;line-height:1.45;background:var(--deep);border-radius:14px;padding:12px 14px">'+(gain>0.009?'Avec <strong class="acc">'+esc(best.mp.f==='none'?'aucun abonnement':passLabel(best.mp))+'</strong>, vous auriez payé <strong>'+eur(best.cost)+'</strong>, soit <strong class="acc">'+eur(gain)+' de moins</strong> que vos '+eur(r.real)+' réels.':'<strong class="acc">Vos choix étaient les plus avantageux</strong> : '+eur(r.real)+' payés au total.')+'</p>'+
+  '<div class="list">'+r.rows.map(function(row,i){
+    var d=row.cost-r.real,lab=row.mp.f==='none'?'Sans abonnement':passLabel(row.mp);
+    return '<div class="row" style="min-height:52px;cursor:default"><span style="flex:1;display:flex;flex-direction:column;gap:2px"><span style="font-size:14px;font-weight:600">'+esc(lab)+(row===best?' <span class="badge ok" style="font-size:10px;padding:3px 7px;vertical-align:middle">Le moins cher</span>':'')+'</span>'+
+    (row.mp.f==='m26'?'<span class="mut" style="font-size:11px">réservé aux moins de 26 ans (non retenu)</span>':row.mp.f==='silver'&&r.preMay?'<span class="mut" style="font-size:11px">n’existait pas avant le 4 mai 2026</span>':'')+'</span>'+
+    '<span style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span style="font-size:14px;font-weight:700">'+eur(row.cost)+'</span><span style="font-size:11px;color:'+(Math.abs(d)<0.01?'var(--mut)':d<0?'var(--accT)':'var(--neg)')+'">'+(Math.abs(d)<0.01?'= votre choix':(d<0?'−':'+')+eur(Math.abs(d))+' vs réel')+'</span></span></div>';
+  }).join('')+'</div></section>';
+}
+/* compléments de la base de films (durée, générique) pour les films vus, chargés au besoin */
+var detailsTried={},detailsBusy=false;
+function ensureSeenDetails(y){
+  if(detailsBusy||!CAN_TMDB||!tmdbKey())return;
+  var ids={};state.sessions.forEach(function(s){if(s.tmdb&&+s.date.slice(0,4)===y&&!detailsTried[s.tmdb]){var f=catalog.films[s.tmdb];if(!f||!f.cr||!f.rt)ids[s.tmdb]=1;}});
+  var list=Object.keys(ids).map(Number);if(!list.length)return;
+  detailsBusy=true;list.forEach(function(i){detailsTried[i]=1;});
+  pool(list,3,function(id){return filmDetails(id);}).then(function(){detailsBusy=false;if(ui.tab==='stats')render();});
+}
 function viewStats(){
   /* années proposées : de la plus ancienne séance (au plus tard l'an dernier) à dans deux ans, ex. 2025 → 2028 */
   var y=ui.statsYear,cy=new Date().getFullYear(),y0=cy-1,ys=[];
@@ -828,6 +903,33 @@ function viewStats(){
   var byDow=[1,2,3,4,5,6,0].map(function(d){return {k:DOWL[d],n:dow[d]||0};}).filter(function(r){return r.n;});
   var pc={};yi.months.forEach(function(m){if(m.elapsed&&m.pass.f!=='none'){var k=passLabel(m.pass);pc[k]=(pc[k]||0)+1;}});
   var byPass=Object.keys(pc).map(function(k){return {k:k,n:pc[k]};}).sort(function(a,b){return b.n-a.n;});
+  ensureSeenDetails(y);
+  /* le cinéma en chiffres */
+  var mins=0,known=0,dirs={},acts={},perMonth={};
+  list.forEach(function(s){
+    var f=s.tmdb?catalog.films[s.tmdb]:null;perMonth[ymOf(s.date)]=(perMonth[ymOf(s.date)]||0)+1;
+    if(f&&f.rt){mins+=f.rt;known++;}
+    if(f&&f.dir)f.dir.forEach(function(p){var k=p.id+'|dir|'+p.n;dirs[k]=(dirs[k]||0)+1;});
+    if(f&&f.cast)f.cast.slice(0,4).forEach(function(p){var k=p.id+'|act|'+p.n;acts[k]=(acts[k]||0)+1;});
+  });
+  function topPeople(o){return Object.keys(o).map(function(k){return {k:k.split('|').slice(2).join('|'),key:k,n:o[k]};}).filter(function(r){return r.n>1;}).sort(function(a,b){return b.n-a.n;}).slice(0,5);}
+  var topDir=topPeople(dirs),topAct=topPeople(acts);
+  var cine=Object.keys(perMonth).sort(function(a,b){return perMonth[b]-perMonth[a];})[0];
+  /* notes */
+  var rated={},sumR=0,nR=0,genreR={};
+  list.forEach(function(s){var k=filmKey(s.tmdb,s.title),nt=noteOf(s.tmdb,s.title);if(nt&&nt.r&&!rated[k]){rated[k]={s:s,nt:nt};sumR+=nt.r;nR++;(s.genres||[]).forEach(function(g){genreR[g]=genreR[g]||{t:0,n:0};genreR[g].t+=nt.r;genreR[g].n++;});}});
+  var hearts=Object.keys(rated).map(function(k){return rated[k];}).filter(function(x){return x.nt.r>=4;}).sort(function(a,b){return b.nt.r-a.nt.r||(a.s.date<b.s.date?1:-1);});
+  var byGenreR=Object.keys(genreR).map(function(g){return {k:g,n:genreR[g].t/genreR[g].n,c:genreR[g].n};}).sort(function(a,b){return b.n-a.n;}).slice(0,8);
+  var chiffres=list.length?'<section class="card" aria-label="Le cinéma en chiffres"><h2 class="disp h2">Le cinéma en chiffres</h2><div class="grid2">'+
+    '<div class="tile"><span class="k">Temps passé en salle</span><span class="v">'+(known?(Math.floor(mins/60)+' h '+pad(mins%60)):'—')+'</span>'+(known&&known<list.length?'<span class="k">'+known+' séance'+(known>1?'s':'')+' sur '+list.length+' (durée connue)</span>':'')+'</div>'+
+    '<div class="tile"><span class="k">Mois le plus cinéphile</span><span class="v">'+(cine?cap(monthTitle(cine)):'—')+'</span>'+(cine?'<span class="k">'+perMonth[cine]+' séance'+(perMonth[cine]>1?'s':'')+'</span>':'')+'</div>'+
+    '<div class="tile"><span class="k">Ma note moyenne</span><span class="v">'+(nR?(sumR/nR).toFixed(1).replace('.',',')+' / 5':'—')+'</span>'+(nR?'<span class="k">'+nR+' film'+(nR>1?'s notés':' noté')+'</span>':'<span class="k">notez vos films dans leurs fiches</span>')+'</div>'+
+    '<div class="tile"><span class="k">Films différents</span><span class="v">'+Object.keys(list.reduce(function(o,s){o[filmKey(s.tmdb,s.title)]=1;return o;},{})).length+'</span></div>'+
+    '</div>'+(!tmdbKey()&&CAN_TMDB?'<span class="mut" style="font-size:12px">Ajoutez votre clé TMDB dans Réglages pour la durée des films et le générique.</span>':'')+'</section>':'';
+  var heartsHTML=hearts.length?'<section class="card" aria-label="Mes coups de cœur"><h2 class="disp h2">Mes coups de cœur</h2><div style="display:flex;flex-direction:column;gap:8px">'+hearts.slice(0,8).map(function(x){
+    return '<button class="item" data-act="'+(x.s.tmdb?'film':'edit')+'" data-v="'+esc(x.s.tmdb||x.s.id)+'" style="background:var(--deep)">'+posterHTML(x.s.title,x.s.poster)+'<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px"><span style="font-size:15px;font-weight:600">'+esc(x.s.title)+'</span><span style="font-size:13px;color:var(--accT);letter-spacing:1px">'+starsText(x.nt.r)+'</span>'+(x.nt.c?'<span class="mut" style="font-size:12px;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">« '+esc(x.nt.c)+' »</span>':'')+'</span></button>';
+  }).join('')+'</div></section>':'';
+  function peopleBlock(title,rows){if(!rows.length)return '';var max=rows[0].n;return '<section class="card"><h2 class="disp h2">'+title+'</h2><div style="display:flex;flex-direction:column;gap:12px">'+rows.map(function(r){var p=r.key.split('|');return '<button data-act="person" data-v="'+esc(p[0]+'|'+p[1]+'|'+r.k)+'" style="background:none;border:none;padding:0;text-align:left;display:flex;flex-direction:column;gap:6px;color:var(--txt)"><span style="display:flex;justify-content:space-between;gap:8px;font-size:14px;width:100%"><span style="font-weight:600">'+esc(r.k)+'</span><span class="mut">'+r.n+' films</span></span><span class="hbar" style="width:100%"><i style="width:'+(r.n/max*100).toFixed(1)+'%"></i></span></button>';}).join('')+'</div></section>';}
   var best=yi.months.filter(function(m){return m.elapsed&&m.pass.f!=='none'&&m.v;}).sort(function(a,b){return (b.v-b.cost)-(a.v-a.cost);})[0];
   var monthsRows=yi.months.filter(function(m){return m.elapsed||m.v;}).map(function(m){
     var s=m.v-m.cost;
@@ -837,10 +939,13 @@ function viewStats(){
   '<main class="scroll"><div class="chips" role="group" aria-label="Année">'+ys.map(function(v){return '<button class="pill" data-act="statsYear" data-v="'+v+'" aria-pressed="'+(v===y)+'">'+v+'</button>';}).join('')+'</div>'+
   '<div class="grid2"><div class="tile"><span class="k">Séances</span><span class="v">'+list.length+'</span></div><div class="tile"><span class="k">Places</span><span class="v">'+places+'</span></div><div class="tile"><span class="k">Valeur des places</span><span class="v">'+eur(yi.value)+'</span></div><div class="tile"><span class="k">Économies</span><span class="v" style="color:'+(yi.saving>=0?'var(--accT)':'var(--neg)')+'">'+signed(yi.saving)+'</span></div><div class="tile"><span class="k">Abonnements payés</span><span class="v">'+eur(yi.paid)+'</span></div><div class="tile"><span class="k">Suppléments et hors pass</span><span class="v">'+eur(yi.extra)+'</span></div><div class="tile"><span class="k">Prix moyen d’une place</span><span class="v">'+(places?eur(yi.value/places):'—')+'</span></div><div class="tile"><span class="k">Coût réel par place</span><span class="v">'+(places?eur((yi.paid+yi.extra)/places):'—')+'</span></div></div>'+
   (best?'<p class="note">'+ICO.star+'<span>Meilleur mois : <strong style="color:var(--txt)">'+cap(monthTitle(best.ym))+'</strong>, avec '+signed(best.v-best.cost)+' d’économie.</span></p>':'')+
+  simHTML(y)+chiffres+heartsHTML+
   (monthsRows?'<section style="display:flex;flex-direction:column;gap:10px"><h2 class="lbl">Mois par mois</h2><div class="list">'+monthsRows+'</div></section>':'')+
+  peopleBlock('Réalisateurs les plus vus',topDir)+peopleBlock('Acteurs les plus vus',topAct)+
   block('Formules utilisées',byPass,function(r){return r.n+' mois';})+
   block('Par technologie',byTech,function(r){return r.n+' · '+eur(r.v);})+
   block('Par genre',byGenre,cnt)+
+  block('Ma note moyenne par genre',byGenreR,function(r){return r.n.toFixed(1).replace('.',',')+' / 5 · '+r.c+' film'+(r.c>1?'s':'');})+
   block('Horaires de séance',bySlot,cnt)+
   block('Jours préférés',byDow,cnt)+
   block('Salles les plus fréquentées',byRoom,cnt)+
@@ -949,6 +1054,8 @@ function viewForm(){
   '<section style="display:flex;flex-direction:column;gap:10px"><h2 class="lbl">Détails <span style="text-transform:none;letter-spacing:0;font-weight:500">(heure et salle facultatives)</span></h2>'+
   '<div class="field"><label for="fdate">Date</label><input id="fdate" data-in="date" type="date" class="inp" value="'+esc(f.date)+'"></div>'+
   '<div class="grid2"><div class="field"><label for="ftime">Heure</label><input id="ftime" data-in="time" type="time" class="inp" value="'+esc(f.time)+'"></div><div class="field"><label for="froom">Salle</label><input id="froom" data-in="room" class="inp" value="'+esc(f.room)+'" placeholder="ex. 7 ou IMAX"></div></div></section>'+
+  '<section style="display:flex;flex-direction:column;gap:8px"><h2 class="lbl">Mon avis <span style="text-transform:none;letter-spacing:0;font-weight:500">(facultatif)</span></h2><div id="fstars">'+starsHTML(f.rating||0,'frate','f')+'</div>'+
+  '<label for="fcomment" class="sr">Mon avis en quelques mots</label><textarea id="fcomment" data-in="comment" class="inp" maxlength="280" placeholder="En quelques mots…" style="height:78px;padding:10px 12px;font-family:inherit;font-size:15px;resize:none">'+esc(f.comment||'')+'</textarea></section>'+
   (edit?'<div id="fdel"><button class="btn danger sm" data-act="askDelete">Supprimer cette séance</button></div>':'')+
   '</main><footer class="foot"><div id="ffoot">'+formFootHTML()+'</div><button class="btn" data-act="saveForm">'+(edit?'Enregistrer les modifications':'Enregistrer la séance')+'</button></footer>';
 }
@@ -1172,7 +1279,7 @@ function setPass(ym,p,forward){
   if(forward){var y=ym.slice(0,4),m=ym;while(true){m=addMonths(m,1);if(m.slice(0,4)!==y)break;state.months[m]={f:p.f,duo:p.duo};}}
   state.setup=true;persist();
 }
-function openForm(f){ui.form=f;formRemote=[];ui.back=ui.tab==='form'?'home':ui.tab;go('form');}
+function openForm(f){var nt=noteOf(f.tmdb,f.title);if(f.rating===undefined)f.rating=nt?nt.r||0:0;if(f.comment===undefined)f.comment=nt?nt.c||'':'';ui.form=f;formRemote=[];ui.back=ui.tab==='form'?'home':ui.tab;go('form');}
 function formFromFilm(fl){var f=newForm();f.title=fl.t;f.tmdb=fl.id;f.poster=fl.p;f.genres=genreNames(fl);return f;}
 var A={
   tab:function(v){if(ui.tab==='form')ui.form=null;go(v);},
@@ -1206,7 +1313,8 @@ var A={
     if(!t){var i=document.getElementById('ftitle');i.focus();i.style.outline='2px solid var(--neg)';toast('Indiquez le titre du film ou du spectacle');return;}
     if(!f.date){toast('Indiquez la date');return;}
     var old=f.id?state.sessions.find(function(x){return x.id===f.id;}):null;
-    var rec={id:f.id||uid(),title:t.slice(0,140),tech:f.tech,places:f.places,date:f.date,time:f.time||'',room:(f.room||'').trim().slice(0,40),cinema:old&&old.cinema||'',unit:formUnit(f),tmdb:f.tmdb||null,poster:safePath(f.poster),genres:(f.genres||[]).slice(0,6)};
+    var rec={id:f.id||uid(),title:t.slice(0,140),tech:f.tech,places:f.places,date:f.date,time:f.time||'',room:(f.room||'').trim().slice(0,40),cinema:old&&old.cinema||'',unit:formUnit(f),tmdb:f.tmdb||null,poster:safePath(f.poster),genres:(f.genres||[]).slice(0,6),checked:true};
+    if(f.rating||f.comment||noteOf(rec.tmdb,rec.title))setNote(rec.tmdb,rec.title,f.rating||0,f.comment||'');
     if(f.id){state.sessions=state.sessions.map(function(s){return s.id===f.id?rec:s;});}else state.sessions.push(rec);
     var ym=ymOf(rec.date);if(!state.months[ym]){var mp0=monthPass(ym);state.months[ym]={f:mp0.f,duo:mp0.duo};}
     var wasWatched=cleanWatch();
@@ -1238,6 +1346,9 @@ var A={
     if(!persons[id+'|'+role])loadPerson(id,role).then(function(){if(ui.sheet&&ui.sheet.kind==='person'&&ui.sheet.id===id)renderLayer();},function(e){if(ui.sheet&&ui.sheet.kind==='person'&&ui.sheet.id===id){ui.sheet.err=e;renderLayer();}});
   },
   sheetBack:function(){sheetBack();},
+  histFilter:function(v){ui.histFilter=v;render();},
+  frate:function(v){var r=+String(v).split('|')[1];ui.form.rating=ui.form.rating===r?0:r;var e=document.getElementById('fstars');if(e)e.innerHTML=starsHTML(ui.form.rating,'frate','f');},
+  rateFilm:function(v){var p=String(v).split('|'),id=+p[0],r=+p[1],f=catalog.films[id]||{},w=state.watch[id];var t=f.t||(w&&w.t)||'';var cur=(noteOf(id,t)||{}).r||0;setNote(id,t,cur===r?0:r);persist();renderLayer();},
   closeAll:function(){closeAllSheets();},
   watchOutToggle:function(){lsSet('rentabpass-watch-out',lsGet('rentabpass-watch-out')==='open'?'':'open');render();},
   watchToggle:function(v){watchToggle(+v);if(ui.sheet&&ui.sheet.kind==='film')renderLayer();render();},
@@ -1387,6 +1498,7 @@ document.addEventListener('input',function(e){
     if(txt!==v)e.target.value=txt;
     var n=parseFloat(txt.replace(',','.'));var id2=ui.sheet.editing;ui.sheet.texts[id2]=txt;ui.sheet.drafts[id2]=isNaN(n)?0:n;psRefresh();return;
   }
+  if(ui.form&&k==='comment'){ui.form.comment=v;return;}
   if(ui.form&&['title','date','time','room'].indexOf(k)>=0){
     ui.form[k]=v;
     if(k==='title'){e.target.style.outline='';if(ui.form.tmdb&&norm(v)!==norm((catalog.films[ui.form.tmdb]||{}).t||'')){ui.form.tmdb=null;ui.form.poster=null;ui.form.genres=[];}refreshTitle();formSearch();}
@@ -1412,7 +1524,7 @@ setBanner();
 connect();
 if(canUpdate())setTimeout(function(){checkUpdate(false,true);},5300);
 if(IS_APP)syncAlerts();
-migrateSecrets().then(vaultLoad).catch(noop).then(function(){
+pushWidget();migrateSecrets().then(vaultLoad).catch(noop).then(function(){
   render();
   if(CAN_TMDB&&tmdbKey()){loadList('now').then(function(){if(ui.tab==='films'||ui.tab==='form')render();},noop);refreshWatchDates();enrichTmdb();}
 });

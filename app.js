@@ -107,6 +107,15 @@ function signed(n){return (n>=0?'+':'−')+eur(Math.abs(n));}
 function num2(n){return (Math.round(n*100)/100).toFixed(2).replace('.',',');}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 function norm(s){return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().trim();}
+/* salles par cinéma : listes connues, puis celles saisies dans Réglages */
+var KNOWN_ROOMS={'pathe thillois':['1','2','3','4','5','6','7','8','9','10','11','12','4DX','IMAX']};
+function roomSort(a,b){var na=/^\d+$/.test(a),nb=/^\d+$/.test(b);if(na&&nb)return a-b;if(na)return -1;if(nb)return 1;return a.localeCompare(b,'fr');}
+function guessCinema(s){if(s.cinema||!Array.isArray(s.sessions))return;var cc={};s.sessions.forEach(function(x){if(x&&x.cinema)cc[x.cinema]=(cc[x.cinema]||0)+1;});var top=Object.keys(cc).sort(function(a,b){return cc[b]-cc[a];})[0];if(top)s.cinema=String(top).slice(0,60);}
+function cleanRooms(list){var seen={},out=[];(list||[]).forEach(function(r){r=String(r||'').trim().slice(0,20);var k=r.toLowerCase();if(r&&!seen[k]&&out.length<40){seen[k]=1;out.push(r);}});return out.sort(roomSort);}
+function parseRooms(txt){var out=[];String(txt||'').split(/[,;\n]+/).forEach(function(p){p=p.trim();var m=p.match(/^(\d{1,3})\s*(?:-|à|a|–)\s*(\d{1,3})$/i);if(m){var a=+m[1],b=+m[2];if(a>b){var t=a;a=b;b=t;}for(var i=a;i<=b&&i-a<40;i++)out.push(String(i));}else if(p)out.push(p.replace(/^salle\s+/i,''));});return out;}
+function savedRoomsKey(name){var n=norm(name);return Object.keys(state.cinemas).filter(function(k){return norm(k)===n;})[0];}
+function roomsFor(name){if(!name)return [];var k=savedRoomsKey(name);if(k!==undefined)return state.cinemas[k];return KNOWN_ROOMS[norm(name).replace(/[^a-z0-9]+/g,' ').trim()]||[];}
+function roomsSummary(r){if(!r.length)return 'Salle en saisie libre';var nums=r.filter(function(x){return /^\d+$/.test(x);}),oth=r.filter(function(x){return !/^\d+$/.test(x);});var parts=[];if(nums.length)parts.push(nums.length>2?nums[0]+' à '+nums[nums.length-1]:nums.join(', '));return r.length+' salle'+(r.length>1?'s':'')+' · '+parts.concat(oth).join(', ');}
 function keyOf(title){return norm(title).replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,80)||'sans-titre';}
 function hash(s){var h=0;for(var i=0;i<s.length;i++){h=(h*31+s.charCodeAt(i))|0;}return Math.abs(h);}
 function initials(t){var small={le:1,la:1,les:1,de:1,du:1,des:1,un:1,une:1,et:1,the:1,of:1,a:1,l:1,d:1};var w=norm(t).replace(/[^a-z0-9 ]+/g,' ').split(/\s+/).filter(Boolean);var big=w.filter(function(x){return !small[x];});var src=big.length?big:w;return src.slice(0,3).map(function(x){return x.charAt(0).toUpperCase();}).join('')||'?';}
@@ -124,7 +133,7 @@ function safePath(p){return typeof p==='string'&&/^\/[A-Za-z0-9_\-]+\.(jpg|jpeg|
 /* ---------- état ---------- */
 function defaultState(){
   var prices=presetPasses();Object.keys(DEFAULT_PRICES).forEach(function(k){prices[k]=[{p:DEFAULT_PRICES[k],from:ORIGIN}];});
-  return {v:3,prices:prices,months:{},sessions:[],watch:{},notes:{},alertLead:3,setup:false};
+  return {v:3,prices:prices,months:{},sessions:[],watch:{},notes:{},cinema:'',cinemas:{},alertLead:3,setup:false};
 }
 function normMP(v){
   if(v&&typeof v==='object'&&FORM[v.f])return {f:v.f,duo:v.f!=='none'&&!!v.duo};
@@ -148,6 +157,10 @@ function migrate(s){
   Object.keys(s.months).forEach(function(k){var m=normMP(s.months[k]);if(m&&/^\d{4}-\d{2}$/.test(k))s.months[k]=m;else delete s.months[k];});
   if(!s.watch||typeof s.watch!=='object')s.watch={};
   if(!s.notes||typeof s.notes!=='object')s.notes={};
+  if(typeof s.cinema!=='string')s.cinema='';s.cinema=s.cinema.slice(0,60);
+  if(!s.cinemas||typeof s.cinemas!=='object')s.cinemas={};
+  Object.keys(s.cinemas).forEach(function(k){if(!Array.isArray(s.cinemas[k]))delete s.cinemas[k];else s.cinemas[k]=cleanRooms(s.cinemas[k]);});
+  guessCinema(s);
   Object.keys(s.notes).forEach(function(k){var n=s.notes[k];if(!n||typeof n!=='object'){delete s.notes[k];return;}n.r=Math.max(0,Math.min(5,Math.round(+n.r||0)));n.c=String(n.c||'').slice(0,280);if(!n.r&&!n.c)delete s.notes[k];});
   Object.keys(s.watch).forEach(function(k){var w=s.watch[k];if(!w||typeof w.t!=='string'){delete s.watch[k];return;}w.p=safePath(w.p);if(!/^\d{4}-\d{2}-\d{2}$/.test(w.d||''))w.d='';});
   if([0,1,3,7].indexOf(s.alertLead)<0)s.alertLead=3;
@@ -989,6 +1002,7 @@ function viewSet(){
   return '<header class="top"><div><span class="eyebrow">Paramètres</span><h1 class="disp h1">Réglages</h1></div></header>'+
   '<main class="scroll">'+
   '<section style="display:flex;flex-direction:column;gap:10px"><h2 class="lbl">Apparence</h2><div class="seg" role="group" aria-label="Thème" style="grid-template-columns:repeat(3,minmax(0,1fr))">'+[['dark','Sombre'],['light','Clair'],['auto','Automatique']].map(function(x){return '<button data-act="theme" data-v="'+x[0]+'" aria-pressed="'+(themePref()===x[0])+'">'+x[1]+'</button>';}).join('')+'</div>'+(themePref()==='auto'?'<span style="font-size:11px" class="mut">Suit le mode clair ou sombre du téléphone.</span>':'')+'</section>'+
+  '<section style="display:flex;flex-direction:column;gap:10px"><h2 class="lbl">Mon cinéma</h2><div class="list"><button class="row" data-act="cinemaSheet"><span style="flex:1;display:flex;flex-direction:column;gap:2px;min-width:0"><span style="font-size:15px;font-weight:600">'+(state.cinema?esc(state.cinema):'Choisir mon cinéma')+'</span><span style="font-size:12px" class="mut">'+esc(state.cinema?roomsSummary(roomsFor(state.cinema)):'Pour choisir la salle d’un geste')+'</span></span>'+ICO.right+'</button></div></section>'+
   '<section style="display:flex;flex-direction:column;gap:10px"><div class="sec-title"><h2 class="lbl">Formule de chaque mois</h2><div style="display:flex;gap:6px;align-items:center"><button class="ibtn" style="width:36px;height:36px" data-act="month" data-v="-12" aria-label="Année précédente">'+ICO.left+'</button><span style="font-size:14px;font-weight:700">'+y+'</span><button class="ibtn" style="width:36px;height:36px" data-act="month" data-v="12" aria-label="Année suivante">'+ICO.rightW+'</button></div></div>'+
   '<div class="mgrid">'+mg.join('')+'</div><span style="font-size:11px" class="mut">Bordure pointillée : formule reprise du mois précédent.</span></section>'+
   '<section style="display:flex;flex-direction:column;gap:10px"><h2 class="lbl">Prix des formules CinéPass</h2><div class="list">'+PASS_IDS.map(function(i){return priceRow(i,'/mois');}).join('')+'</div>'+
@@ -1075,12 +1089,23 @@ function viewForm(){
   '<div class="stepper"><button data-act="fplaces" data-v="-1" aria-label="Retirer une place">−</button><span class="n disp" aria-live="polite" id="fplaces">'+f.places+'</span><button class="plus" data-act="fplaces" data-v="1" aria-label="Ajouter une place">+</button></div></section>'+
   '<section style="display:flex;flex-direction:column;gap:10px"><h2 class="lbl">Détails <span style="text-transform:none;letter-spacing:0;font-weight:500">(heure et salle facultatives)</span></h2>'+
   '<div class="field"><label for="fdate">Date</label><input id="fdate" data-in="date" type="date" class="inp" value="'+esc(f.date)+'"></div>'+
-  '<div class="grid2"><div class="field"><label for="ftime">Heure</label><input id="ftime" data-in="time" type="time" class="inp" value="'+esc(f.time)+'"></div><div class="field"><label for="froom">Salle</label><input id="froom" data-in="room" class="inp" value="'+esc(f.room)+'" placeholder="ex. 7 ou IMAX"></div></div></section>'+
+  (roomsFor(f.cinema||state.cinema).length?'<div class="field"><label for="ftime">Heure</label><input id="ftime" data-in="time" type="time" class="inp" value="'+esc(f.time)+'"></div><div id="froomwrap">'+roomFieldHTML()+'</div>':
+  '<div class="grid2"><div class="field"><label for="ftime">Heure</label><input id="ftime" data-in="time" type="time" class="inp" value="'+esc(f.time)+'"></div><div id="froomwrap">'+roomFieldHTML()+'</div></div>')+'</section>'+
   '<section style="display:flex;flex-direction:column;gap:8px"><h2 class="lbl">Mon avis <span style="text-transform:none;letter-spacing:0;font-weight:500">(facultatif)</span></h2><div id="fstars">'+starsHTML(f.rating||0,'frate','f')+'</div>'+
   '<label for="fcomment" class="sr">Mon avis en quelques mots</label><textarea id="fcomment" data-in="comment" class="inp" maxlength="280" placeholder="En quelques mots…" style="height:78px;padding:10px 12px;font-family:inherit;font-size:15px;resize:none">'+esc(f.comment||'')+'</textarea></section>'+
   (edit?'<div id="fdel"><button class="btn danger sm" data-act="askDelete">Supprimer cette séance</button></div>':'')+
   '</main><footer class="foot"><div id="ffoot">'+formFootHTML()+'</div><button class="btn" data-act="saveForm">'+(edit?'Enregistrer les modifications':'Enregistrer la séance')+'</button></footer>';
 }
+function roomFieldHTML(){
+  var f=ui.form,cin=f.cinema||state.cinema,rooms=roomsFor(cin);
+  if(!rooms.length)return '<div class="field"><label for="froom">Salle</label><input id="froom" data-in="room" class="inp" value="'+esc(f.room)+'" placeholder="ex. 7 ou IMAX" autocomplete="off"></div>';
+  var other=f.roomOther||(f.room&&rooms.indexOf(f.room)<0);
+  return '<div style="display:flex;flex-direction:column;gap:8px"><div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline"><span style="font-size:12px" class="mut" id="froomlbl">Salle</span><button data-act="tab" data-v="set" style="background:none;border:none;padding:0;font-size:12px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(cin)+'</button></div>'+
+    '<div class="rooms" role="group" aria-labelledby="froomlbl">'+rooms.map(function(r){return '<button class="tech" data-act="froom" data-v="'+esc(r)+'" aria-pressed="'+(!other&&f.room===r)+'"'+(/^\d+$/.test(r)?' aria-label="Salle '+esc(r)+'"':'')+'>'+esc(r)+'</button>';}).join('')+
+    '<button class="tech" data-act="froomOther" aria-pressed="'+!!other+'" style="font-size:13px">Autre</button></div>'+
+    (other?'<label for="froom" class="sr">Autre salle</label><input id="froom" data-in="room" class="inp" value="'+esc(f.room)+'" placeholder="Nom ou numéro de la salle" autocomplete="off">':'')+'</div>';
+}
+function refreshRoom(){var w=document.getElementById('froomwrap');if(w)w.innerHTML=roomFieldHTML();}
 function passInfo(){var p=monthPass(ymOf(ui.form.date||todayISO()));return p.f==='none'?'Sans abonnement ce mois-là':passLabel(p)+' : '+(p.duo?'2 places couvertes':'1 place couverte');}
 function formFootHTML(){
   var f=ui.form,unit=formUnit(f),ym=ymOf(f.date||todayISO()),pass=monthPass(ym);
@@ -1124,6 +1149,24 @@ function psTimelineHTML(){
 }
 function psChipsHTML(){var p=ui.sheet;return PRICE_IDS.map(function(id){return '<button class="pill" role="tab" data-act="psPick" data-v="'+id+'" aria-selected="'+(p.editing===id)+'">'+PRICE_SHORT[id]+(psDirty(id)?'<span class="dot" aria-label="modifié"></span>':'')+'</button>';}).join('');}
 function psApplyLabel(){var n=PRICE_IDS.filter(psDirty).length;return n>1?'Appliquer ('+n+')':'Appliquer';}
+function cinRoomsHTML(){
+  var sh=ui.sheet,k=KNOWN_ROOMS[norm(sh.name).replace(/[^a-z0-9]+/g,' ').trim()];
+  return (sh.rooms.length?'<div style="display:flex;flex-wrap:wrap;gap:6px">'+sh.rooms.map(function(r){return '<span class="roomchip">'+esc(r)+'<button data-act="cinDel" data-v="'+esc(r)+'" aria-label="Retirer la salle '+esc(r)+'">×</button></span>';}).join('')+'</div>':
+    '<p class="note" style="margin:0">'+ICO.info+'<span>Aucune liste de salles'+(sh.name.trim()?' pour ce cinéma':'')+' : la salle se saisira librement. Ajoutez des salles ci-dessous pour les choisir d’un geste.</span></p>')+
+    (k&&!sh.rooms.length?'<button class="btn ghost sm" data-act="cinPreset">Utiliser la liste connue ('+k.length+' salles)</button>':'');
+}
+function cinRefresh(){var e=document.getElementById('cinrooms');if(e)e.innerHTML=cinRoomsHTML();var c=document.getElementById('cincount');if(c)c.textContent=ui.sheet.rooms.length?ui.sheet.rooms.length+' salle'+(ui.sheet.rooms.length>1?'s':''):'';}
+function sheetCinemaHTML(){
+  var sh=ui.sheet,known=Object.keys(state.cinemas).filter(function(k){return norm(k)!==norm(sh.name);});
+  return '<div class="sheet" role="dialog" aria-label="Mon cinéma"><span class="handle" aria-hidden="true"></span><h2 class="disp" style="margin:0;font-size:28px">Mon cinéma</h2>'+
+  '<div class="field"><label for="cinname">Nom du cinéma</label><input id="cinname" data-in="cinName" class="inp" value="'+esc(sh.name)+'" placeholder="ex. Pathé Thillois" autocomplete="off" maxlength="60"></div>'+
+  (known.length?'<div style="display:flex;flex-wrap:wrap;gap:6px">'+known.map(function(k){return '<button class="pill" data-act="cinPick" data-v="'+esc(k)+'" style="height:36px">'+esc(k)+'</button>';}).join('')+'</div>':'')+
+  '<div style="display:flex;justify-content:space-between;align-items:baseline"><h3 class="lbl" style="margin:0">Salles</h3><span class="mut" style="font-size:12px" id="cincount">'+(sh.rooms.length?sh.rooms.length+' salle'+(sh.rooms.length>1?'s':''):'')+'</span></div>'+
+  '<div id="cinrooms" style="display:flex;flex-direction:column;gap:10px">'+cinRoomsHTML()+'</div>'+
+  '<div style="display:flex;gap:8px"><label for="cinadd" class="sr">Ajouter des salles</label><input id="cinadd" data-in="cinAdd" class="inp" style="flex:1;min-width:0" placeholder="ex. 13, ScreenX ou 1-12" autocomplete="off" enterkeyhint="done"><button class="btn sm" data-act="cinAddDo" style="width:auto;padding:0 18px">Ajouter</button></div>'+
+  '<span class="mut" style="font-size:12px">Séparez par des virgules ; « 1-12 » ajoute les salles 1 à 12.</span>'+
+  '<div class="grid2"><button class="btn ghost" data-act="closeSheet">Annuler</button><button class="btn" data-act="cinSave">Enregistrer</button></div></div>';
+}
 function sheetPriceHTML(){
   var p=ui.sheet,id=p.editing,d=psDraft(id),txt=p.texts[id]!==undefined?p.texts[id]:num2(d);
   var lab=PASS_IDS.indexOf(id)>=0?'Nouveau prix mensuel':(id.indexOf('x_')===0?'Nouveau supplément par place':'Nouveau prix d’une place');
@@ -1272,7 +1315,7 @@ function sheetPersonHTML(){
 function renderLayer(){
   var l=document.getElementById('layer'),s=ui.sheet;
   if(!s){l.innerHTML='';return;}
-  var inner={person:sheetPersonHTML,update:sheetUpdateHTML,paste:sheetPasteHTML,merge:sheetMergeHTML,price:sheetPriceHTML,import:sheetImportHTML,json:sheetJsonHTML,pass:sheetPassHTML,film:sheetFilmHTML,myfilm:sheetMyFilmHTML}[s.kind]();
+  var inner={person:sheetPersonHTML,update:sheetUpdateHTML,paste:sheetPasteHTML,merge:sheetMergeHTML,cinema:sheetCinemaHTML,price:sheetPriceHTML,import:sheetImportHTML,json:sheetJsonHTML,pass:sheetPassHTML,film:sheetFilmHTML,myfilm:sheetMyFilmHTML}[s.kind]();
   if(!inner){ui.sheet=null;l.innerHTML='';return;}
   l.innerHTML='<div class="scrim"><button class="close-area" data-act="closeSheet" aria-label="Fermer"></button>'+inner+'</div>';
 }
@@ -1318,7 +1361,11 @@ var A={
   new:function(){openForm(newForm());},
   edit:function(v){var s=state.sessions.find(function(x){return x.id===v;});if(!s)return;ui.sheet=null;openForm({id:s.id,title:s.title,tech:s.tech,places:s.places,date:s.date,time:s.time||'',room:s.room||'',tmdb:s.tmdb||null,poster:s.poster||null,genres:(s.genres||[]).slice()});},
   cancelForm:function(){ui.form=null;go(ui.back&&ui.back!=='form'?ui.back:'home');},
-  ftech:function(v){ui.form.tech=v;document.querySelectorAll('.tech').forEach(function(b){b.setAttribute('aria-pressed',String(b.getAttribute('data-v')===v));});refreshFoot();},
+  ftech:function(v){var f=ui.form,rooms=roomsFor(f.cinema||state.cinema),want=/^imax/.test(v)?'IMAX':/^4dx/.test(v)?'4DX':'';
+    var match=want&&rooms.filter(function(r){return r.toUpperCase()===want;})[0];
+    if(match&&(!f.room||f.room===f.autoRoom)){f.room=match;f.autoRoom=match;f.roomOther=false;refreshRoom();}
+    else if(!want&&f.autoRoom&&f.room===f.autoRoom){f.room='';f.autoRoom='';refreshRoom();}
+    ui.form.tech=v;document.querySelectorAll('.tech[data-act=ftech]').forEach(function(b){b.setAttribute('aria-pressed',String(b.getAttribute('data-v')===v));});refreshFoot();},
   fplaces:function(v){ui.form.places=Math.max(1,Math.min(6,ui.form.places+(+v)));document.getElementById('fplaces').textContent=ui.form.places;refreshFoot();},
   fpick:function(v){
     var s=(window.__sugg||[])[+v];if(!s)return;var f=ui.form;
@@ -1335,7 +1382,7 @@ var A={
     if(!t){var i=document.getElementById('ftitle');i.focus();i.style.outline='2px solid var(--neg)';toast('Indiquez le titre du film ou du spectacle');return;}
     if(!f.date){toast('Indiquez la date');return;}
     var old=f.id?state.sessions.find(function(x){return x.id===f.id;}):null;
-    var rec={id:f.id||uid(),title:t.slice(0,140),tech:f.tech,places:f.places,date:f.date,time:f.time||'',room:(f.room||'').trim().slice(0,40),cinema:old&&old.cinema||'',unit:formUnit(f),tmdb:f.tmdb||null,poster:safePath(f.poster),genres:(f.genres||[]).slice(0,6),checked:true};
+    var rec={id:f.id||uid(),title:t.slice(0,140),tech:f.tech,places:f.places,date:f.date,time:f.time||'',room:(f.room||'').trim().slice(0,40),cinema:(old&&old.cinema)||f.cinema||state.cinema||'',unit:formUnit(f),tmdb:f.tmdb||null,poster:safePath(f.poster),genres:(f.genres||[]).slice(0,6),checked:true};
     if(f.rating||f.comment||noteOf(rec.tmdb,rec.title))setNote(rec.tmdb,rec.title,f.rating||0,f.comment||'');
     if(f.id){state.sessions=state.sessions.map(function(s){return s.id===f.id?rec:s;});}else state.sessions.push(rec);
     var ym=ymOf(rec.date);if(!state.months[ym]){var mp0=monthPass(ym);state.months[ym]={f:mp0.f,duo:mp0.duo};}
@@ -1368,6 +1415,18 @@ var A={
     if(!persons[id+'|'+role])loadPerson(id,role).then(function(){if(ui.sheet&&ui.sheet.kind==='person'&&ui.sheet.id===id)renderLayer();},function(e){if(ui.sheet&&ui.sheet.kind==='person'&&ui.sheet.id===id){ui.sheet.err=e;renderLayer();}});
   },
   sheetBack:function(){sheetBack();},
+  froom:function(v){var f=ui.form;f.roomOther=false;f.autoRoom='';f.room=f.room===v?'':v;
+    var u=v.toUpperCase();if(f.room&&u==='IMAX'&&!/^imax/.test(f.tech))A.ftech('imax');else if(f.room&&u==='4DX'&&!/^4dx/.test(f.tech))A.ftech('4dx');
+    refreshRoom();},
+  froomOther:function(){var f=ui.form,rooms=roomsFor(f.cinema||state.cinema);f.roomOther=!(f.roomOther||(f.room&&rooms.indexOf(f.room)<0));if(!f.roomOther&&rooms.indexOf(f.room)<0)f.room='';else if(f.roomOther&&rooms.indexOf(f.room)>=0)f.room='';f.autoRoom='';refreshRoom();if(f.roomOther){var i=document.getElementById('froom');if(i)i.focus();}},
+  cinemaSheet:function(){var n=state.cinema;ui.sheet={kind:'cinema',name:n,rooms:roomsFor(n).slice(),touched:false,add:''};renderLayer();},
+  cinPick:function(v){var sh=ui.sheet;sh.name=v;sh.rooms=roomsFor(v).slice();sh.touched=false;renderLayer();},
+  cinDel:function(v){var sh=ui.sheet;sh.rooms=sh.rooms.filter(function(r){return r!==v;});sh.touched=true;cinRefresh();},
+  cinAddDo:function(){var sh=ui.sheet,i=document.getElementById('cinadd'),add=parseRooms(i?i.value:sh.add);if(!add.length){if(i)i.focus();return;}sh.rooms=cleanRooms(sh.rooms.concat(add));sh.touched=true;sh.add='';cinRefresh();var j=document.getElementById('cinadd');if(j){j.value='';j.focus();}},
+  cinPreset:function(){var sh=ui.sheet,k=KNOWN_ROOMS[norm(sh.name).replace(/[^a-z0-9]+/g,' ').trim()];if(k){sh.rooms=k.slice();sh.touched=true;cinRefresh();}},
+  cinSave:function(){var sh=ui.sheet,name=String(sh.name||'').trim().slice(0,60);
+    if(name){var k=savedRoomsKey(name);if(k!==undefined&&k!==name)delete state.cinemas[k];state.cinemas[name]=cleanRooms(sh.rooms);}
+    state.cinema=name;persist();closeAllSheets();render();toast(name?'Cinéma enregistré':'Cinéma retiré');},
   histFilter:function(v){ui.histFilter=v;render();},
   todoOldToggle:function(){lsSet('rentabpass-todo-old',lsGet('rentabpass-todo-old')==='open'?'':'open');render();},
   foldStat:function(v){var c=statsClosed(),i=c.indexOf(v);if(i>=0)c.splice(i,1);else c.push(v);lsSet('rentabpass-stats-fold',JSON.stringify(c));render();},
@@ -1420,7 +1479,7 @@ var A={
     var m=mergeSplit(ui.sheet.list);if(!m.add.length){ui.sheet=null;renderLayer();return;}
     m.add.forEach(function(x){state.sessions.push(x);var ym=ymOf(x.date);if(!state.months[ym]){var mp0=monthPass(ym);state.months[ym]={f:mp0.f,duo:mp0.duo};}});
     if(cleanWatch())syncAlerts();
-    state.setup=true;persist();ui.sheet=null;ui.tab='hist';render();toast(m.add.length+' séances ajoutées');enrichTmdb();
+    guessCinema(state);state.setup=true;persist();ui.sheet=null;ui.tab='hist';render();toast(m.add.length+' séances ajoutées');enrichTmdb();
   },
   importDo:function(){state=ui.sheet.data;state.setup=true;persist();ui.sheet=null;render();toast('Sauvegarde importée');}
 };
@@ -1523,6 +1582,8 @@ document.addEventListener('input',function(e){
     if(txt!==v)e.target.value=txt;
     var n=parseFloat(txt.replace(',','.'));var id2=ui.sheet.editing;ui.sheet.texts[id2]=txt;ui.sheet.drafts[id2]=isNaN(n)?0:n;psRefresh();return;
   }
+  if(k==='cinName'&&ui.sheet&&ui.sheet.kind==='cinema'){var sh=ui.sheet;sh.name=v;if(!sh.touched)sh.rooms=roomsFor(v.trim()).slice();cinRefresh();return;}
+  if(k==='cinAdd'&&ui.sheet){ui.sheet.add=v;return;}
   if(ui.form&&k==='comment'){ui.form.comment=v;return;}
   if(ui.form&&['title','date','time','room'].indexOf(k)>=0){
     ui.form[k]=v;
@@ -1540,7 +1601,7 @@ document.addEventListener('change',function(e){
     file.text().then(importText).catch(function(){toast('Fichier de sauvegarde invalide');});
   }
 });
-document.addEventListener('keydown',function(e){if(e.key==='Escape'&&ui.sheet){if(!sheetBack())closeAllSheets();}});
+document.addEventListener('keydown',function(e){if(e.key==='Enter'&&e.target&&e.target.id==='cinadd'){e.preventDefault();A.cinAddDo();return;}if(e.key==='Escape'&&ui.sheet){if(!sheetBack())closeAllSheets();}});
 
 loadLocal();
 if(cleanWatch())saveLocal();

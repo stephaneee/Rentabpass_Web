@@ -479,7 +479,7 @@ function sessionItem(s){
     '<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px"><span style="font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(s.title)+'</span>'+
     '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="chip">'+esc(TECH[s.tech].chip)+'</span><span style="font-size:12px" class="mut">'+esc(meta.join(' · '))+'</span></div>'+
     (nt&&nt.r?'<span style="font-size:12px;color:var(--accT);letter-spacing:1px" aria-label="Ma note : '+nt.r+' sur 5">'+starsText(nt.r)+'</span>':'')+
-    (miss.length?'<span style="font-size:12px;color:var(--neg)">À compléter : '+miss.join(', ')+'</span>':'')+'</div>'+
+    (miss.length?'<span style="font-size:12px;color:'+(s.date.slice(0,4)<String(new Date().getFullYear())?'var(--mut)':'var(--neg)')+'">À compléter : '+miss.join(', ')+'</span>':'')+'</div>'+
     '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0"><span style="font-size:15px;font-weight:700">'+eur(sessionValue(s))+'</span><span style="font-size:11px;'+(ex>0?'color:var(--neg)':'')+'" class="mut">'+(ex>0?eur(ex)+' payés':s.places+' place'+(s.places>1?'s':''))+'</span></div></button>';
 }
 
@@ -824,23 +824,44 @@ function starsText(r){var h='';for(var i=1;i<=5;i++)h+=i<=r?'★':'☆';return h
 /* une séance « à compléter » : sans salle, sans heure, ou importée sans technologie confirmée */
 function missingOf(s){var m=[];if(!s.checked&&/^imp/.test(s.id))m.push('technologie');if(!s.time)m.push('heure');if(!s.room)m.push('salle');return m;}
 function viewHist(){
-  var todoN=state.sessions.filter(function(s){return missingOf(s).length;}).length;
-  if(ui.histFilter==='todo'&&!todoN)ui.histFilter='all';
-  var q=norm(ui.q),all=state.sessions.filter(function(s){return (!q||norm(s.title).indexOf(q)>=0||norm(s.room).indexOf(q)>=0)&&(ui.histFilter!=='todo'||missingOf(s).length);}).sort(sortDesc);
-  var groups=[],cur=null;
-  all.forEach(function(s){var ym=ymOf(s.date);if(!cur||cur.ym!==ym){cur={ym:ym,items:[]};groups.push(cur);}cur.items.push(s);});
-  var body=groups.length?groups.map(function(g){
-    var v=g.items.reduce(function(t,s){return t+sessionValue(s);},0);
-    return '<section style="display:flex;flex-direction:column;gap:10px"><div class="sec-title"><h2 class="lbl">'+cap(monthTitle(g.ym))+' '+g.ym.slice(0,4)+' · '+esc(passShort(monthPass(g.ym)))+'</h2><span style="font-size:12px" class="mut">'+eur(v)+'</span></div>'+g.items.map(sessionItem).join('')+'</section>';
-  }).join(''):'<div class="empty"><span>'+(q?'Aucune séance ne correspond.':'Aucune séance enregistrée pour l’instant.')+'</span>'+(q?'':'<button class="btn sm" data-act="new" style="width:auto;padding:0 18px">'+ICO.plus+'Ajouter une séance</button>')+'</div>';
+  var cy=String(new Date().getFullYear());
+  function isOld(x){return x.date.slice(0,4)<cy;}
+  var todo=state.sessions.filter(function(x){return missingOf(x).length;});
+  var todoCur=todo.filter(function(x){return !isOld(x);}).length,todoOld=todo.length-todoCur;
+  if(ui.histFilter==='todo'&&!todo.length)ui.histFilter='all';
+  var isTodo=ui.histFilter==='todo';
+  var q=norm(ui.q),all=state.sessions.filter(function(x){return (!q||norm(x.title).indexOf(q)>=0||norm(x.room).indexOf(q)>=0)&&(!isTodo||missingOf(x).length);}).sort(sortDesc);
+  function groupsHTML(list){
+    var groups=[],cur=null;
+    list.forEach(function(x){var ym=ymOf(x.date);if(!cur||cur.ym!==ym){cur={ym:ym,items:[]};groups.push(cur);}cur.items.push(x);});
+    return groups.map(function(g){
+      var v=g.items.reduce(function(t,x){return t+sessionValue(x);},0);
+      return '<section style="display:flex;flex-direction:column;gap:10px"><div class="sec-title"><h2 class="lbl">'+cap(monthTitle(g.ym))+' '+g.ym.slice(0,4)+' · '+esc(passShort(monthPass(g.ym)))+'</h2><span style="font-size:12px" class="mut">'+eur(v)+'</span></div>'+g.items.map(sessionItem).join('')+'</section>';
+    }).join('');
+  }
+  var body;
+  if(isTodo){
+    var curL=all.filter(function(x){return !isOld(x);}),oldL=all.filter(isOld),open=lsGet('rentabpass-todo-old')==='open';
+    body=(curL.length?groupsHTML(curL):'<p class="note">'+ICO.check+'<span>'+(q?'Aucune séance de '+cy+' ne correspond.':'Tout est complet pour '+cy+'.')+'</span></p>')+
+      (oldL.length?'<section style="display:flex;flex-direction:column;gap:10px;margin-top:6px"><button data-act="todoOldToggle" aria-expanded="'+open+'" style="display:flex;align-items:center;gap:10px;background:none;border:none;border-top:1px solid var(--line);padding:14px 0 0;min-height:44px;text-align:left;color:var(--txt)"><span style="flex:1;display:flex;flex-direction:column;gap:2px"><span class="lbl">Années précédentes</span><span class="mut" style="font-size:12px">Facultatif : seulement si vous voulez affiner les statistiques passées</span></span>'+'<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;color:var(--mut);transform:rotate('+(open?180:0)+'deg)"><path d="M6 9l6 6 6-6"/></svg>'+'</button>'+(open?groupsHTML(oldL):'')+'</section>':'');
+  }else{
+    body=all.length?groupsHTML(all):'<div class="empty"><span>'+(q?'Aucune séance ne correspond.':'Aucune séance enregistrée pour l’instant.')+'</span>'+(q?'':'<button class="btn sm" data-act="new" style="width:auto;padding:0 18px">'+ICO.plus+'Ajouter une séance</button>')+'</div>';
+  }
   return '<header class="top"><div><span class="eyebrow">'+state.sessions.length+' séance'+(state.sessions.length>1?'s':'')+' au total</span><h1 class="disp h1">Mes séances</h1></div></header>'+
   '<main class="scroll"><div style="display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:0 14px;height:48px">'+ICO.search+'<label for="hq" class="sr">Rechercher</label><input id="hq" data-in="q" type="search" value="'+esc(ui.q)+'" placeholder="Rechercher un film, une salle" style="flex:1;background:transparent;border:none;font-size:16px;outline:none;min-width:0"></div>'+
-  (todoN?'<div class="seg" role="group" aria-label="Filtrer les séances" style="grid-template-columns:repeat(2,minmax(0,1fr))"><button data-act="histFilter" data-v="all" aria-pressed="'+(ui.histFilter!=='todo')+'">Toutes</button><button data-act="histFilter" data-v="todo" aria-pressed="'+(ui.histFilter==='todo')+'">À compléter · '+todoN+'</button></div>':'')+
+  (todo.length?'<div class="seg" role="group" aria-label="Filtrer les séances" style="grid-template-columns:repeat(2,minmax(0,1fr))"><button data-act="histFilter" data-v="all" aria-pressed="'+!isTodo+'">Toutes</button><button data-act="histFilter" data-v="todo" aria-pressed="'+isTodo+'">À compléter'+(todoCur?' · '+todoCur:'')+'</button></div>':'')+
   body+'</main>'+
   '<button class="fab" data-act="new">'+ICO.plus+'Ajouter une séance</button>'+navHTML();
 }
 
 /* ---------- Stats ---------- */
+/* volets repliables des statistiques (mémorisés) */
+var STATS_KEYS=['sim','chiffres','coeur','mois','real','act','formules','tech','genre','noteGenre','horaires','jours','salles'];
+function statsClosed(){try{var o=JSON.parse(lsGet('rentabpass-stats-fold')||'[]');return Array.isArray(o)?o:[];}catch(e){return [];}}
+function fold(key,title,sub,body,label){
+  var open=statsClosed().indexOf(key)<0;
+  return '<section class="card"'+(label?' aria-label="'+esc(label)+'"':'')+' data-fold="'+key+'"><button data-act="foldStat" data-v="'+key+'" aria-expanded="'+open+'" style="display:flex;align-items:center;gap:10px;background:none;border:none;padding:0;min-height:40px;text-align:left;color:var(--txt);width:100%"><span style="flex:1;display:flex;flex-direction:column;gap:4px;min-width:0"><h2 class="disp h2" style="margin:0">'+title+'</h2>'+(sub?'<span class="mut" style="font-size:12px">'+sub+'</span>':'')+'</span>'+'<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;color:var(--mut);transform:rotate('+(open?180:0)+'deg)"><path d="M6 9l6 6 6-6"/></svg>'+'</button>'+(open?body:'')+'</section>';
+}
 /* simulateur : ce qu'aurait coûté l'année avec chaque formule, à partir des séances réelles */
 function simCost(ym,mp){var d=ym+'-28',base=mp.f==='none'?0:priceAt('pass_'+mp.f,d)+(mp.duo?priceAt('opt_duo',d):0);return base+sessionsIn(ym).reduce(function(t,s){return t+extraFor(s,mp);},0);}
 function simulateYear(y){
@@ -857,14 +878,14 @@ function simHTML(y){
   var best=r.rows.filter(function(x){return x.mp.f!=='m26';})[0]||r.rows[0],m0=r.months[0],m1=r.months[r.months.length-1];
   var period=m0===m1?monthTitle(m0):MSHORT[+m0.slice(5,7)-1]+' → '+MSHORT[+m1.slice(5,7)-1];
   var gain=r.real-best.cost;
-  return '<section class="card" aria-label="Formule la moins chère"><div style="display:flex;flex-direction:column;gap:4px"><h2 class="disp h2">Quelle formule était la moins chère ?</h2><span class="mut" style="font-size:12px">Sur '+r.months.length+' mois ('+period+'), d’après vos '+r.n+' séance'+(r.n>1?'s':'')+' réelles</span></div>'+
+  return fold('sim','Quelle formule était la moins chère ?','Sur '+r.months.length+' mois ('+period+'), d’après vos '+r.n+' séance'+(r.n>1?'s':'')+' réelles',
   '<p style="margin:0;font-size:14px;line-height:1.45;background:var(--deep);border-radius:14px;padding:12px 14px">'+(gain>0.009?'Avec <strong class="acc">'+esc(best.mp.f==='none'?'aucun abonnement':passLabel(best.mp))+'</strong>, vous auriez payé <strong>'+eur(best.cost)+'</strong>, soit <strong class="acc">'+eur(gain)+' de moins</strong> que vos '+eur(r.real)+' réels.':'<strong class="acc">Vos choix étaient les plus avantageux</strong> : '+eur(r.real)+' payés au total.')+'</p>'+
   '<div class="list">'+r.rows.map(function(row,i){
     var d=row.cost-r.real,lab=row.mp.f==='none'?'Sans abonnement':passLabel(row.mp);
     return '<div class="row" style="min-height:52px;cursor:default"><span style="flex:1;display:flex;flex-direction:column;gap:2px"><span style="font-size:14px;font-weight:600">'+esc(lab)+(row===best?' <span class="badge ok" style="font-size:10px;padding:3px 7px;vertical-align:middle">Le moins cher</span>':'')+'</span>'+
     (row.mp.f==='m26'?'<span class="mut" style="font-size:11px">réservé aux moins de 26 ans (non retenu)</span>':row.mp.f==='silver'&&r.preMay?'<span class="mut" style="font-size:11px">n’existait pas avant le 4 mai 2026</span>':'')+'</span>'+
     '<span style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span style="font-size:14px;font-weight:700">'+eur(row.cost)+'</span><span style="font-size:11px;color:'+(Math.abs(d)<0.01?'var(--mut)':d<0?'var(--accT)':'var(--neg)')+'">'+(Math.abs(d)<0.01?'= votre choix':(d<0?'−':'+')+eur(Math.abs(d))+' vs réel')+'</span></span></div>';
-  }).join('')+'</div></section>';
+  }).join('')+'</div>','Formule la moins chère');
 }
 /* compléments de la base de films (durée, générique) pour les films vus, chargés au besoin */
 var detailsTried={},detailsBusy=false;
@@ -882,12 +903,12 @@ function viewStats(){
   for(var a=y0;a<=cy+2;a++)ys.push(a);
   var list=state.sessions.filter(function(s){return +s.date.slice(0,4)===y;}),yi=yearInfo(y);
   var places=list.reduce(function(t,s){return t+s.places;},0);
-  function block(title,rows,fmtV){
+  function block(key,title,rows,fmtV){
     if(!rows.length)return '';
     var max=Math.max.apply(null,rows.map(function(r){return r.n;}));
-    return '<section class="card"><h2 class="disp h2">'+title+'</h2><div style="display:flex;flex-direction:column;gap:12px">'+rows.map(function(r){
+    return fold(key,title,'','<div style="display:flex;flex-direction:column;gap:12px">'+rows.map(function(r){
       return '<div style="display:flex;flex-direction:column;gap:6px"><div style="display:flex;justify-content:space-between;gap:8px;font-size:14px"><span style="font-weight:600">'+esc(r.k)+'</span><span class="mut" style="white-space:nowrap">'+fmtV(r)+'</span></div><div class="hbar"><i style="width:'+(r.n/max*100).toFixed(1)+'%"></i></div></div>';
-    }).join('')+'</div></section>';
+    }).join('')+'</div>');
   }
   function cnt(r){return r.n+' séance'+(r.n>1?'s':'');}
   var byTech=TECHS.map(function(t){var l=list.filter(function(s){return s.tech===t.id;});return {k:t.long||t.label,n:l.length,v:l.reduce(function(a,s){return a+sessionValue(s);},0)};}).filter(function(r){return r.n;}).sort(function(a,b){return b.n-a.n;});
@@ -920,16 +941,16 @@ function viewStats(){
   list.forEach(function(s){var k=filmKey(s.tmdb,s.title),nt=noteOf(s.tmdb,s.title);if(nt&&nt.r&&!rated[k]){rated[k]={s:s,nt:nt};sumR+=nt.r;nR++;(s.genres||[]).forEach(function(g){genreR[g]=genreR[g]||{t:0,n:0};genreR[g].t+=nt.r;genreR[g].n++;});}});
   var hearts=Object.keys(rated).map(function(k){return rated[k];}).filter(function(x){return x.nt.r>=4;}).sort(function(a,b){return b.nt.r-a.nt.r||(a.s.date<b.s.date?1:-1);});
   var byGenreR=Object.keys(genreR).map(function(g){return {k:g,n:genreR[g].t/genreR[g].n,c:genreR[g].n};}).sort(function(a,b){return b.n-a.n;}).slice(0,8);
-  var chiffres=list.length?'<section class="card" aria-label="Le cinéma en chiffres"><h2 class="disp h2">Le cinéma en chiffres</h2><div class="grid2">'+
+  var chiffres=list.length?fold('chiffres','Le cinéma en chiffres','','<div class="grid2">'+
     '<div class="tile"><span class="k">Temps passé en salle</span><span class="v">'+(known?(Math.floor(mins/60)+' h '+pad(mins%60)):'—')+'</span>'+(known&&known<list.length?'<span class="k">'+known+' séance'+(known>1?'s':'')+' sur '+list.length+' (durée connue)</span>':'')+'</div>'+
     '<div class="tile"><span class="k">Mois le plus cinéphile</span><span class="v">'+(cine?cap(monthTitle(cine)):'—')+'</span>'+(cine?'<span class="k">'+perMonth[cine]+' séance'+(perMonth[cine]>1?'s':'')+'</span>':'')+'</div>'+
     '<div class="tile"><span class="k">Ma note moyenne</span><span class="v">'+(nR?(sumR/nR).toFixed(1).replace('.',',')+' / 5':'—')+'</span>'+(nR?'<span class="k">'+nR+' film'+(nR>1?'s notés':' noté')+'</span>':'<span class="k">notez vos films dans leurs fiches</span>')+'</div>'+
     '<div class="tile"><span class="k">Films différents</span><span class="v">'+Object.keys(list.reduce(function(o,s){o[filmKey(s.tmdb,s.title)]=1;return o;},{})).length+'</span></div>'+
-    '</div>'+(!tmdbKey()&&CAN_TMDB?'<span class="mut" style="font-size:12px">Ajoutez votre clé TMDB dans Réglages pour la durée des films et le générique.</span>':'')+'</section>':'';
-  var heartsHTML=hearts.length?'<section class="card" aria-label="Mes coups de cœur"><h2 class="disp h2">Mes coups de cœur</h2><div style="display:flex;flex-direction:column;gap:8px">'+hearts.slice(0,8).map(function(x){
+    '</div>'+(!tmdbKey()&&CAN_TMDB?'<span class="mut" style="font-size:12px">Ajoutez votre clé TMDB dans Réglages pour la durée des films et le générique.</span>':''),'Le cinéma en chiffres'):'';
+  var heartsHTML=hearts.length?fold('coeur','Mes coups de cœur','','<div style="display:flex;flex-direction:column;gap:8px">'+hearts.slice(0,8).map(function(x){
     return '<button class="item" data-act="'+(x.s.tmdb?'film':'edit')+'" data-v="'+esc(x.s.tmdb||x.s.id)+'" style="background:var(--deep)">'+posterHTML(x.s.title,x.s.poster)+'<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px"><span style="font-size:15px;font-weight:600">'+esc(x.s.title)+'</span><span style="font-size:13px;color:var(--accT);letter-spacing:1px">'+starsText(x.nt.r)+'</span>'+(x.nt.c?'<span class="mut" style="font-size:12px;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">« '+esc(x.nt.c)+' »</span>':'')+'</span></button>';
-  }).join('')+'</div></section>':'';
-  function peopleBlock(title,rows){if(!rows.length)return '';var max=rows[0].n;return '<section class="card"><h2 class="disp h2">'+title+'</h2><div style="display:flex;flex-direction:column;gap:12px">'+rows.map(function(r){var p=r.key.split('|');return '<button data-act="person" data-v="'+esc(p[0]+'|'+p[1]+'|'+r.k)+'" style="background:none;border:none;padding:0;text-align:left;display:flex;flex-direction:column;gap:6px;color:var(--txt)"><span style="display:flex;justify-content:space-between;gap:8px;font-size:14px;width:100%"><span style="font-weight:600">'+esc(r.k)+'</span><span class="mut">'+r.n+' films</span></span><span class="hbar" style="width:100%"><i style="width:'+(r.n/max*100).toFixed(1)+'%"></i></span></button>';}).join('')+'</div></section>';}
+  }).join('')+'</div>','Mes coups de cœur'):'';
+  function peopleBlock(key,title,rows){if(!rows.length)return '';var max=rows[0].n;return fold(key,title,'','<div style="display:flex;flex-direction:column;gap:12px">'+rows.map(function(r){var p=r.key.split('|');return '<button data-act="person" data-v="'+esc(p[0]+'|'+p[1]+'|'+r.k)+'" style="background:none;border:none;padding:0;text-align:left;display:flex;flex-direction:column;gap:6px;color:var(--txt)"><span style="display:flex;justify-content:space-between;gap:8px;font-size:14px;width:100%"><span style="font-weight:600">'+esc(r.k)+'</span><span class="mut">'+r.n+' films</span></span><span class="hbar" style="width:100%"><i style="width:'+(r.n/max*100).toFixed(1)+'%"></i></span></button>';}).join('')+'</div>');}
   var best=yi.months.filter(function(m){return m.elapsed&&m.pass.f!=='none'&&m.v;}).sort(function(a,b){return (b.v-b.cost)-(a.v-a.cost);})[0];
   var monthsRows=yi.months.filter(function(m){return m.elapsed||m.v;}).map(function(m){
     var s=m.v-m.cost;
@@ -937,18 +958,19 @@ function viewStats(){
   }).join('');
   return '<header class="top"><div><span class="eyebrow">Statistiques</span><h1 class="disp h1">Année <span class="acc">'+y+'</span></h1></div></header>'+
   '<main class="scroll"><div class="chips" role="group" aria-label="Année">'+ys.map(function(v){return '<button class="pill" data-act="statsYear" data-v="'+v+'" aria-pressed="'+(v===y)+'">'+v+'</button>';}).join('')+'</div>'+
+  (list.length?'<div style="display:flex;justify-content:flex-end;gap:8px"><button class="pill" data-act="foldAll" data-v="open" style="height:36px;font-size:13px">Tout déployer</button><button class="pill" data-act="foldAll" data-v="close" style="height:36px;font-size:13px">Tout réduire</button></div>':'')+
   '<div class="grid2"><div class="tile"><span class="k">Séances</span><span class="v">'+list.length+'</span></div><div class="tile"><span class="k">Places</span><span class="v">'+places+'</span></div><div class="tile"><span class="k">Valeur des places</span><span class="v">'+eur(yi.value)+'</span></div><div class="tile"><span class="k">Économies</span><span class="v" style="color:'+(yi.saving>=0?'var(--accT)':'var(--neg)')+'">'+signed(yi.saving)+'</span></div><div class="tile"><span class="k">Abonnements payés</span><span class="v">'+eur(yi.paid)+'</span></div><div class="tile"><span class="k">Suppléments et hors pass</span><span class="v">'+eur(yi.extra)+'</span></div><div class="tile"><span class="k">Prix moyen d’une place</span><span class="v">'+(places?eur(yi.value/places):'—')+'</span></div><div class="tile"><span class="k">Coût réel par place</span><span class="v">'+(places?eur((yi.paid+yi.extra)/places):'—')+'</span></div></div>'+
   (best?'<p class="note">'+ICO.star+'<span>Meilleur mois : <strong style="color:var(--txt)">'+cap(monthTitle(best.ym))+'</strong>, avec '+signed(best.v-best.cost)+' d’économie.</span></p>':'')+
   simHTML(y)+chiffres+heartsHTML+
-  (monthsRows?'<section style="display:flex;flex-direction:column;gap:10px"><h2 class="lbl">Mois par mois</h2><div class="list">'+monthsRows+'</div></section>':'')+
-  peopleBlock('Réalisateurs les plus vus',topDir)+peopleBlock('Acteurs les plus vus',topAct)+
-  block('Formules utilisées',byPass,function(r){return r.n+' mois';})+
-  block('Par technologie',byTech,function(r){return r.n+' · '+eur(r.v);})+
-  block('Par genre',byGenre,cnt)+
-  block('Ma note moyenne par genre',byGenreR,function(r){return r.n.toFixed(1).replace('.',',')+' / 5 · '+r.c+' film'+(r.c>1?'s':'');})+
-  block('Horaires de séance',bySlot,cnt)+
-  block('Jours préférés',byDow,cnt)+
-  block('Salles les plus fréquentées',byRoom,cnt)+
+  (monthsRows?fold('mois','Mois par mois','','<div class="list">'+monthsRows+'</div>'):'')+
+  peopleBlock('real','Réalisateurs les plus vus',topDir)+peopleBlock('act','Acteurs les plus vus',topAct)+
+  block('formules','Formules utilisées',byPass,function(r){return r.n+' mois';})+
+  block('tech','Par technologie',byTech,function(r){return r.n+' · '+eur(r.v);})+
+  block('genre','Par genre',byGenre,cnt)+
+  block('noteGenre','Ma note moyenne par genre',byGenreR,function(r){return r.n.toFixed(1).replace('.',',')+' / 5 · '+r.c+' film'+(r.c>1?'s':'');})+
+  block('horaires','Horaires de séance',bySlot,cnt)+
+  block('jours','Jours préférés',byDow,cnt)+
+  block('salles','Salles les plus fréquentées',byRoom,cnt)+
   (!list.length?'<div class="empty"><span>Pas encore de séance en '+y+'.</span></div>':'')+
   '</main>'+navHTML();
 }
@@ -1347,6 +1369,9 @@ var A={
   },
   sheetBack:function(){sheetBack();},
   histFilter:function(v){ui.histFilter=v;render();},
+  todoOldToggle:function(){lsSet('rentabpass-todo-old',lsGet('rentabpass-todo-old')==='open'?'':'open');render();},
+  foldStat:function(v){var c=statsClosed(),i=c.indexOf(v);if(i>=0)c.splice(i,1);else c.push(v);lsSet('rentabpass-stats-fold',JSON.stringify(c));render();},
+  foldAll:function(v){lsSet('rentabpass-stats-fold',v==='close'?JSON.stringify(STATS_KEYS):'[]');render();},
   frate:function(v){var r=+String(v).split('|')[1];ui.form.rating=ui.form.rating===r?0:r;var e=document.getElementById('fstars');if(e)e.innerHTML=starsHTML(ui.form.rating,'frate','f');},
   rateFilm:function(v){var p=String(v).split('|'),id=+p[0],r=+p[1],f=catalog.films[id]||{},w=state.watch[id];var t=f.t||(w&&w.t)||'';var cur=(noteOf(id,t)||{}).r||0;setNote(id,t,cur===r?0:r);persist();renderLayer();},
   closeAll:function(){closeAllSheets();},

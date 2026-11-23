@@ -1564,7 +1564,7 @@ if(IS_WEB&&'serviceWorker' in navigator&&location.protocol==='https:'){navigator
   if(state.sessions.length&&yi.count){
     var target=yi.saving,el=document.createElement('span');sub.appendChild(document.createTextNode(y+' : '));var b=document.createElement('b');sub.appendChild(b);sub.appendChild(document.createTextNode(target>=0?' économisés':' à rattraper'));
     var t0=null;function step(ts){if(!t0)t0=ts;var k=Math.min(1,(ts-t0-900)/800);if(k<0)k=0;b.textContent=signed(target*(1-Math.pow(1-k,3)));if(k<1)requestAnimationFrame(step);}requestAnimationFrame(step);
-  }else sub.textContent='Chaque séance compte';
+  }
   var v=IS_APP&&BRIDGE&&typeof BRIDGE.appVersion==='function'?'Version 1.0.'+appVersion():(IS_WEB?'Version web':'Version web (Claude)');
   document.getElementById('splashver').innerHTML='<b>'+esc(v)+'</b><br>Copyright : Stanji';
   var done=false;function hide(){if(done)return;done=true;sp.classList.add('out');setTimeout(function(){if(sp.parentNode)sp.parentNode.removeChild(sp);},550);}

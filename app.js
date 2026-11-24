@@ -1280,10 +1280,19 @@ function sheetMyFilmHTML(){
 }
 
 /* ---------- rendu ---------- */
+/* affiches chargées seulement quand elles approchent de l'écran, et libérées quand elles s'en éloignent :
+   évite de saturer la mémoire graphique du téléphone (carrés verts, morceaux d'écran qui restent affichés) */
+var lzObs=window.IntersectionObserver?new IntersectionObserver(function(es){es.forEach(function(e){e.target.classList.toggle('lz',!e.isIntersecting);});},{rootMargin:'900px 0px'}):null;
+function lazyScan(root){
+  if(!lzObs||!root)return;
+  var els=root.querySelectorAll('.pimg,.poster,.posterBig');
+  for(var i=0;i<els.length;i++){var el=els[i];if(el.style.backgroundImage&&el.style.backgroundImage.indexOf('http')>=0&&!el.__lz){el.__lz=1;el.classList.add('lz');lzObs.observe(el);}}
+}
 function render(){
   var v=document.getElementById('view'),sc=v.querySelector('.scroll'),top=sc?sc.scrollTop:0,prevTab=v.getAttribute('data-tab');
   var html=ui.tab==='form'?viewForm():ui.tab==='films'?viewFilms():ui.tab==='hist'?viewHist():ui.tab==='stats'?viewStats():ui.tab==='set'?viewSet():viewHome();
-  v.innerHTML=html;v.setAttribute('data-tab',ui.tab);
+  if(lzObs)lzObs.disconnect();
+  v.innerHTML=html;v.setAttribute('data-tab',ui.tab);lazyScan(v);
   setTimeout(fabWake,0);
   var nsc=v.querySelector('.scroll');if(nsc&&prevTab===ui.tab)nsc.scrollTop=top;
   renderLayer();
@@ -1322,7 +1331,7 @@ function renderLayer(){
   if(!s){l.innerHTML='';return;}
   var inner={person:sheetPersonHTML,update:sheetUpdateHTML,paste:sheetPasteHTML,merge:sheetMergeHTML,cinema:sheetCinemaHTML,price:sheetPriceHTML,import:sheetImportHTML,json:sheetJsonHTML,pass:sheetPassHTML,film:sheetFilmHTML,myfilm:sheetMyFilmHTML}[s.kind]();
   if(!inner){ui.sheet=null;l.innerHTML='';return;}
-  l.innerHTML='<div class="scrim"><button class="close-area" data-act="closeSheet" aria-label="Fermer"></button>'+inner+'</div>';
+  l.innerHTML='<div class="scrim"><button class="close-area" data-act="closeSheet" aria-label="Fermer"></button>'+inner+'</div>';lazyScan(l);
 }
 
 /* ---------- export ---------- */

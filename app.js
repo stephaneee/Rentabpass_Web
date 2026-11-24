@@ -285,7 +285,9 @@ function saveCatalog(){
   Object.keys(catalog.lists).forEach(function(k){(catalog.lists[k].ids||[]).forEach(function(i){keep[i]=1;});});
   var ids=Object.keys(catalog.films);
   if(ids.length>800){ids.forEach(function(i){if(!keep[i])delete catalog.films[i];});}
-  lsSet(LSC,JSON.stringify(catalog));
+  if(lsSet(LSC,JSON.stringify(catalog)))return;
+  ids.forEach(function(i){if(!keep[i])delete catalog.films[i];else if(catalog.films[i].o)catalog.films[i].o=String(catalog.films[i].o).slice(0,300);});
+  if(!lsSet(LSC,JSON.stringify(catalog))){try{localStorage.removeItem(LSC);}catch(e){}}
 }
 /* ---------- coffre des clés (TMDB, GitHub) ----------
    APK : clés chiffrées par le coffre matériel d'Android (Keystore) ; la page ne peut plus les relire, seulement s'en servir.
@@ -836,6 +838,7 @@ function starsText(r){var h='';for(var i=1;i<=5;i++)h+=i<=r?'★':'☆';return h
 /* ---------- Séances ---------- */
 /* une séance « à compléter » : sans salle, sans heure, ou importée sans technologie confirmée */
 function missingOf(s){var m=[];if(!s.checked&&/^imp/.test(s.id))m.push('technologie');if(!s.time)m.push('heure');if(!s.room)m.push('salle');return m;}
+function todoOldOpen(){if(ui.todoOld===undefined)ui.todoOld=lsGet('rentabpass-todo-old')==='open';return ui.todoOld;}
 function viewHist(){
   var cy=String(new Date().getFullYear());
   function isOld(x){return x.date.slice(0,4)<cy;}
@@ -854,7 +857,7 @@ function viewHist(){
   }
   var body;
   if(isTodo){
-    var curL=all.filter(function(x){return !isOld(x);}),oldL=all.filter(isOld),open=lsGet('rentabpass-todo-old')==='open';
+    var curL=all.filter(function(x){return !isOld(x);}),oldL=all.filter(isOld),open=todoOldOpen();
     body=(curL.length?groupsHTML(curL):'<p class="note">'+ICO.check+'<span>'+(q?'Aucune séance de '+cy+' ne correspond.':'Tout est complet pour '+cy+'.')+'</span></p>')+
       (oldL.length?'<section style="display:flex;flex-direction:column;gap:10px;margin-top:6px"><button data-act="todoOldToggle" aria-expanded="'+open+'" style="display:flex;align-items:center;gap:10px;background:none;border:none;border-top:1px solid var(--line);padding:14px 0 0;min-height:44px;text-align:left;color:var(--txt)"><span style="flex:1;display:flex;flex-direction:column;gap:2px"><span class="lbl">Années précédentes</span><span class="mut" style="font-size:12px">Facultatif : seulement si vous voulez affiner les statistiques passées</span></span>'+'<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;color:var(--mut);transform:rotate('+(open?180:0)+'deg)"><path d="M6 9l6 6 6-6"/></svg>'+'</button>'+(open?groupsHTML(oldL):'')+'</section>':'');
   }else{
@@ -870,7 +873,9 @@ function viewHist(){
 /* ---------- Stats ---------- */
 /* volets repliables des statistiques (mémorisés) */
 var STATS_KEYS=['sim','chiffres','coeur','mois','real','act','formules','tech','genre','noteGenre','horaires','jours','salles'];
-function statsClosed(){try{var o=JSON.parse(lsGet('rentabpass-stats-fold')||'[]');return Array.isArray(o)?o:[];}catch(e){return [];}}
+var statsFold=null;
+function statsClosed(){if(statsFold===null){try{var o=JSON.parse(lsGet('rentabpass-stats-fold')||'[]');statsFold=Array.isArray(o)?o:[];}catch(e){statsFold=[];}}return statsFold.slice();}
+function setStatsClosed(c){statsFold=c.slice();lsSet('rentabpass-stats-fold',JSON.stringify(statsFold));}
 function fold(key,title,sub,body,label){
   var open=statsClosed().indexOf(key)<0;
   return '<section class="card"'+(label?' aria-label="'+esc(label)+'"':'')+' data-fold="'+key+'"><button data-act="foldStat" data-v="'+key+'" aria-expanded="'+open+'" style="display:flex;align-items:center;gap:10px;background:none;border:none;padding:0;min-height:40px;text-align:left;color:var(--txt);width:100%"><span style="flex:1;display:flex;flex-direction:column;gap:4px;min-width:0"><h2 class="disp h2" style="margin:0">'+title+'</h2>'+(sub?'<span class="mut" style="font-size:12px">'+sub+'</span>':'')+'</span>'+'<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;color:var(--mut);transform:rotate('+(open?180:0)+'deg)"><path d="M6 9l6 6 6-6"/></svg>'+'</button>'+(open?body:'')+'</section>';
@@ -1428,9 +1433,9 @@ var A={
     if(name){var k=savedRoomsKey(name);if(k!==undefined&&k!==name)delete state.cinemas[k];state.cinemas[name]=cleanRooms(sh.rooms);}
     state.cinema=name;persist();closeAllSheets();render();toast(name?'Cinéma enregistré':'Cinéma retiré');},
   histFilter:function(v){ui.histFilter=v;render();},
-  todoOldToggle:function(){lsSet('rentabpass-todo-old',lsGet('rentabpass-todo-old')==='open'?'':'open');render();},
-  foldStat:function(v){var c=statsClosed(),i=c.indexOf(v);if(i>=0)c.splice(i,1);else c.push(v);lsSet('rentabpass-stats-fold',JSON.stringify(c));render();},
-  foldAll:function(v){lsSet('rentabpass-stats-fold',v==='close'?JSON.stringify(STATS_KEYS):'[]');render();},
+  todoOldToggle:function(){ui.todoOld=!todoOldOpen();lsSet('rentabpass-todo-old',ui.todoOld?'open':'');render();},
+  foldStat:function(v){var c=statsClosed(),i=c.indexOf(v);if(i>=0)c.splice(i,1);else c.push(v);setStatsClosed(c);render();},
+  foldAll:function(v){setStatsClosed(v==='close'?STATS_KEYS:[]);render();toast(v==='close'?'Tout est réduit':'Tout est déployé');},
   frate:function(v){var r=+String(v).split('|')[1];ui.form.rating=ui.form.rating===r?0:r;var e=document.getElementById('fstars');if(e)e.innerHTML=starsHTML(ui.form.rating,'frate','f');},
   rateFilm:function(v){var p=String(v).split('|'),id=+p[0],r=+p[1],f=catalog.films[id]||{},w=state.watch[id];var t=f.t||(w&&w.t)||'';var cur=(noteOf(id,t)||{}).r||0;setNote(id,t,cur===r?0:r);persist();renderLayer();},
   closeAll:function(){closeAllSheets();},
